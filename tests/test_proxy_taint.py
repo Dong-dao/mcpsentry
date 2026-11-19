@@ -65,7 +65,7 @@ def test_source_marking_in_flow_log(tmp_path: Path) -> None:
     taint_log = tmp_path / "taint.jsonl"
     names, doc_text, echo_text = asyncio.run(_run_proxy(flow_log, taint_log))
 
-    assert names == ["echo", "read_external_doc"]
+    assert names == ["echo", "read_external_doc", "send_email"]
     assert doc_text == DOC_TEXT
     assert echo_text == "hello-taint"
 

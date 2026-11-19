@@ -3,6 +3,7 @@
 用法：
     python -m engine.proxy --backend '["python","backend.py"]' [--log path]
                            [--taint-log path] [--classes path/to/classes.json]
+                           [--policy alert|block] [--no-downgrade-on-untrusted]
 """
 
 from __future__ import annotations
@@ -32,6 +33,18 @@ def main() -> None:
         default=None,
         help="工具分类覆盖 JSON 文件：{\"tool\": \"source|sink|neutral\"}",
     )
+    parser.add_argument(
+        "--policy",
+        default="block",
+        choices=["alert", "block"],
+        help="sink 命中策略：alert 记边放行 / block 拒绝调用（默认 block）",
+    )
+    parser.add_argument(
+        "--downgrade-on-untrusted",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="首次读取不可信内容后进入能力降级（alert 升级为 block），默认开启",
+    )
     parser.add_argument("--name", default="mcpsentry-proxy")
     args = parser.parse_args()
 
@@ -46,6 +59,8 @@ def main() -> None:
             log_path=args.log,
             taint_log_path=args.taint_log,
             tool_classes=tool_classes,
+            policy=args.policy,
+            downgrade_on_untrusted=args.downgrade_on_untrusted,
             name=args.name,
         )
     )

@@ -48,6 +48,12 @@ def main() -> None:
         default=True,
         help="首次读取不可信内容后进入能力降级（alert 升级为 block），默认开启",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="确定模式：call_id 改为顺序编号（基准回放一致性用）",
+    )
     parser.add_argument("--name", default="mcpsentry-proxy")
     args = parser.parse_args()
 
@@ -64,6 +70,7 @@ def main() -> None:
             tool_classes=tool_classes,
             policy=args.policy,
             downgrade_on_untrusted=args.downgrade_on_untrusted,
+            seed=args.seed,
             name=args.name,
         )
     )

@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -18,48 +16,12 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "taint_backend.py"
+sys.path.insert(0, str(FIXTURE.parent))
+from llm_mock import MockLLMServer  # noqa: E402
 
 INFLUENCED = '{"influenced": true, "reason": "注入指令诱导转发数据", "confidence": 0.95}'
 CLEAN = '{"influenced": false, "reason": "调用与不可信内容无关", "confidence": 0.1}'
 LOW_CONF = '{"influenced": true, "reason": "疑似诱导", "confidence": 0.7}'
-
-
-class MockLLMServer:
-    """本地 OpenAI-compatible /chat/completions 假端点，记录请求、返回固定内容。"""
-
-    def __init__(self, response: str):
-        self.calls: list[dict] = []
-        self.response = response
-        outer = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", 0))
-                outer.calls.append(json.loads(self.rfile.read(length)))
-                payload = json.dumps(
-                    {"choices": [{"message": {"content": outer.response}}]},
-                    ensure_ascii=False,
-                ).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-            def log_message(self, *args) -> None:
-                pass
-
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.port = self.httpd.server_address[1]
-        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
-
-    def __enter__(self) -> "MockLLMServer":
-        self.thread.start()
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.httpd.shutdown()
-        self.httpd.server_close()
 
 
 def _proxy_params(flow_log: Path, capture: Path, port: int, downgrade: bool = True) -> StdioServerParameters:

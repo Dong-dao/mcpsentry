@@ -53,6 +53,7 @@ async def run_proxy(
     policy: str = "block",
     downgrade_on_untrusted: bool = True,
     semantic_judge: SemanticJudge | None = None,
+    seed: int | None = None,
     stdin: Any = None,
     stdout: Any = None,
     name: str = "mcpsentry-proxy",
@@ -64,6 +65,7 @@ async def run_proxy(
     pinner = RugPullPinner()
     rugpull_blocked: set[str] = set()
     cap_logged = False
+    call_seq = 0
     if semantic_judge is None:
         if os.environ.get("DASHSCOPE_API_KEY"):
             semantic_judge = SemanticJudge()
@@ -129,8 +131,13 @@ async def run_proxy(
 
         @server.call_tool()
         async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
-            nonlocal downgraded, cap_logged
-            call_id = f"t-{uuid.uuid4().hex[:12]}"
+            nonlocal downgraded, cap_logged, call_seq
+            # seed 模式下 call_id 用确定性序号（基准回放一致性 §7 的前提）
+            if seed is None:
+                call_id = f"t-{uuid.uuid4().hex[:12]}"
+            else:
+                call_id = f"t-{call_seq:012d}"
+                call_seq += 1
             tool_class = classify_tool(name, tool_classes)
             logger.log(
                 "front_request",
@@ -144,6 +151,11 @@ async def run_proxy(
             )
 
             if name in rugpull_blocked:
+                logger.log(
+                    "taint",
+                    "rugpull_block",
+                    {"call_id": call_id, "tool": name, "blocked": True},
+                )
                 raise RuntimeError(
                     f"policy_blocked: rug_pull_detected on tool {name} "
                     f"(description changed after baseline)"

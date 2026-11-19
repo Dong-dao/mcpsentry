@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "AttackClass": {
+      "enum": [
+        "A1_direct_injection",
+        "A2_indirect_tool_result",
+        "A3_description_poisoning",
+        "A4_exfiltration_inducement"
+      ],
+      "title": "AttackClass",
+      "type": "string"
+    },
+    "AttackSpec": {
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/AttackClass"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "max_rounds": {
+          "default": 6,
+          "title": "Max Rounds",
+          "type": "integer"
+        },
+        "carrier": {
+          "default": "doc",
+          "description": "doc|web|tool_result|none",
+          "title": "Carrier",
+          "type": "string"
+        },
+        "objective_marker": {
+          "description": "attacker_markers 之一，成功判定锚点",
+          "title": "Objective Marker",
+          "type": "string"
+        }
+      },
+      "required": [
+        "class",
+        "seed",
+        "objective_marker"
+      ],
+      "title": "AttackSpec",
+      "type": "object"
+    },
+    "DefenseSpec": {
+      "properties": {
+        "proxy": {
+          "title": "Proxy",
+          "type": "boolean"
+        },
+        "policy": {
+          "$ref": "#/$defs/PolicyMode",
+          "default": "block"
+        },
+        "downgrade_on_untrusted": {
+          "default": true,
+          "title": "Downgrade On Untrusted",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "proxy"
+      ],
+      "title": "DefenseSpec",
+      "type": "object"
+    },
+    "OracleSpec": {
+      "properties": {
+        "canary": {
+          "title": "Canary",
+          "type": "string"
+        },
+        "forbidden_sinks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Sinks",
+          "type": "array"
+        },
+        "attacker_markers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attacker Markers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "canary",
+        "forbidden_sinks",
+        "attacker_markers"
+      ],
+      "title": "OracleSpec",
+      "type": "object"
+    },
+    "PolicyMode": {
+      "enum": [
+        "alert",
+        "block"
+      ],
+      "title": "PolicyMode",
+      "type": "string"
+    },
+    "TargetSpec": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "agent_endpoint": {
+          "title": "Agent Endpoint",
+          "type": "string"
+        },
+        "mcp_servers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mcp Servers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "agent_endpoint",
+        "mcp_servers"
+      ],
+      "title": "TargetSpec",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/TargetSpec"
+    },
+    "attack": {
+      "$ref": "#/$defs/AttackSpec"
+    },
+    "defense": {
+      "$ref": "#/$defs/DefenseSpec"
+    },
+    "oracle": {
+      "$ref": "#/$defs/OracleSpec"
+    },
+    "engine_version": {
+      "title": "Engine Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "target",
+    "attack",
+    "defense",
+    "oracle",
+    "engine_version"
+  ],
+  "title": "RunConfig",
+  "type": "object"
+}

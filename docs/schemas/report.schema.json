@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "DetectionLayer": {
+      "enum": [
+        "substring",
+        "semantic"
+      ],
+      "title": "DetectionLayer",
+      "type": "string"
+    },
+    "Evidence": {
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "snippet": {
+          "title": "Snippet",
+          "type": "string"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Extra",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "call_id",
+        "tool",
+        "field",
+        "snippet"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Metrics": {
+      "properties": {
+        "latency_overhead_ms": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "p50/p95",
+          "title": "Latency Overhead Ms",
+          "type": "object"
+        },
+        "substring_hits": {
+          "default": 0,
+          "title": "Substring Hits",
+          "type": "integer"
+        },
+        "semantic_layer_calls": {
+          "default": 0,
+          "title": "Semantic Layer Calls",
+          "type": "integer"
+        },
+        "downgraded": {
+          "default": false,
+          "title": "Downgraded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "latency_overhead_ms"
+      ],
+      "title": "Metrics",
+      "type": "object"
+    },
+    "ReproInfo": {
+      "properties": {
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "engine_version": {
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "payload_hash": {
+          "title": "Payload Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "engine_version",
+        "payload_hash"
+      ],
+      "title": "ReproInfo",
+      "type": "object"
+    },
+    "TaintEdge": {
+      "properties": {
+        "source_call_id": {
+          "title": "Source Call Id",
+          "type": "string"
+        },
+        "source_tool": {
+          "title": "Source Tool",
+          "type": "string"
+        },
+        "sink_call_id": {
+          "title": "Sink Call Id",
+          "type": "string"
+        },
+        "sink_tool": {
+          "title": "Sink Tool",
+          "type": "string"
+        },
+        "sink_field": {
+          "title": "Sink Field",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/DetectionLayer"
+        },
+        "blocked": {
+          "title": "Blocked",
+          "type": "boolean"
+        },
+        "matched_snippet": {
+          "title": "Matched Snippet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_call_id",
+        "source_tool",
+        "sink_call_id",
+        "sink_tool",
+        "sink_field",
+        "layer",
+        "blocked",
+        "matched_snippet"
+      ],
+      "title": "TaintEdge",
+      "type": "object"
+    },
+    "ToolCallRecord": {
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "result_snippet": {
+          "default": "",
+          "title": "Result Snippet",
+          "type": "string"
+        },
+        "timestamp_ms": {
+          "title": "Timestamp Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "call_id",
+        "tool",
+        "args",
+        "timestamp_ms"
+      ],
+      "title": "ToolCallRecord",
+      "type": "object"
+    },
+    "TrajectoryStep": {
+      "properties": {
+        "round": {
+          "title": "Round",
+          "type": "integer"
+        },
+        "payload": {
+          "title": "Payload",
+          "type": "string"
+        },
+        "target_response": {
+          "title": "Target Response",
+          "type": "string"
+        },
+        "tool_calls": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ToolCallRecord"
+          },
+          "title": "Tool Calls",
+          "type": "array"
+        }
+      },
+      "required": [
+        "round",
+        "payload",
+        "target_response"
+      ],
+      "title": "TrajectoryStep",
+      "type": "object"
+    },
+    "Verdict": {
+      "properties": {
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/VerdictType"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "evidence_details": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence Details",
+          "type": "array"
+        }
+      },
+      "required": [
+        "success",
+        "type",
+        "evidence"
+      ],
+      "title": "Verdict",
+      "type": "object"
+    },
+    "VerdictType": {
+      "enum": [
+        "exfiltration",
+        "forbidden_call",
+        "poisoning_executed",
+        "rug_pull_triggered",
+        "attack_failed",
+        "n_a_negative_control"
+      ],
+      "title": "VerdictType",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict"
+    },
+    "trajectory": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TrajectoryStep"
+      },
+      "title": "Trajectory",
+      "type": "array"
+    },
+    "taint_edges": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TaintEdge"
+      },
+      "title": "Taint Edges",
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/Metrics"
+    },
+    "repro": {
+      "$ref": "#/$defs/ReproInfo"
+    }
+  },
+  "required": [
+    "run_id",
+    "verdict",
+    "metrics",
+    "repro"
+  ],
+  "title": "Report",
+  "type": "object"
+}

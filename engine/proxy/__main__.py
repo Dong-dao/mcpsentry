@@ -4,6 +4,9 @@
     python -m engine.proxy --backend '["python","backend.py"]' [--log path]
                            [--taint-log path] [--classes path/to/classes.json]
                            [--policy alert|block] [--no-downgrade-on-untrusted]
+
+语义层：设置 DASHSCOPE_API_KEY 即启用（qwen-flash，可经 DASHSCOPE_MODEL/
+DASHSCOPE_BASE_URL 覆盖）；未设置则自动关闭（仅子串层）。
 """
 
 from __future__ import annotations

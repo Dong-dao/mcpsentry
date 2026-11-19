@@ -8,12 +8,14 @@ D3：tools/call 拦截——每次调用分配 call_id 并记录工具分类，S
     归一化+分块存入 TaintStore，flow log 写 taint/source_marked（完整污点源数据）。
 D4：污点传播——SINK 调用先跑子串层检测；命中按 policy 处理（alert 记边放行，
     block 拒绝调用不触达后端）；首次 SOURCE 读取后进入能力降级（alert 升级为 block）。
-D5+ 挂接点：handle_call_tool 内做语义层判定；handle_list_tools 内做描述扫描与 rug-pull。
+D5：tools/list 跑描述投毒扫描（poison_score≥2 高危）+ rug-pull 哈希钉扎（基线
+    之后的描述变更记 RUG_PULL_SUSPECT 并 block 该工具）；子串层未命中且已降级时，
+    SINK 调用走语义层复核（influenced∧confidence≥0.8 → 拦截，单会话 20 次上限）。
 """
 
 from __future__ import annotations
 
-import asyncio
+import os
 import uuid
 from contextlib import AsyncExitStack
 from typing import Any
@@ -25,7 +27,16 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from ..contracts import PolicyMode
-from ..taint import ToolClass, TaintStore, classify_tool, detect_taint
+from ..taint import (
+    K,
+    SemanticJudge,
+    TaintStore,
+    ToolClass,
+    RugPullPinner,
+    classify_tool,
+    detect_taint,
+    scan_description,
+)
 from .flow_log import FlowLogger
 
 
@@ -41,12 +52,23 @@ async def run_proxy(
     tool_classes: dict[str, str] | None = None,
     policy: str = "block",
     downgrade_on_untrusted: bool = True,
+    semantic_judge: SemanticJudge | None = None,
+    stdin: Any = None,
+    stdout: Any = None,
     name: str = "mcpsentry-proxy",
 ) -> None:
     logger = FlowLogger(log_path)
     taint_store = TaintStore(taint_log_path)
     policy_mode = PolicyMode(policy)
     downgraded = False
+    pinner = RugPullPinner()
+    rugpull_blocked: set[str] = set()
+    cap_logged = False
+    if semantic_judge is None:
+        if os.environ.get("DASHSCOPE_API_KEY"):
+            semantic_judge = SemanticJudge()
+        else:
+            logger.log("semantic", "disabled", {"reason": "DASHSCOPE_API_KEY not set"})
     server = Server(name)
     backend_params = StdioServerParameters(
         command=backend_cmd[0], args=backend_cmd[1:], env=backend_env
@@ -72,11 +94,42 @@ async def run_proxy(
                 "tools/list",
                 {"tools": [t.model_dump() for t in tools]},
             )
+
+            for tool in tools:
+                scan = scan_description(tool.name, tool.description or "")
+                if scan.rules:
+                    logger.log(
+                        "desc",
+                        "scan",
+                        {
+                            "tool": scan.tool,
+                            "score": scan.score,
+                            "rules": scan.rules,
+                            "high_risk": scan.high_risk,
+                        },
+                    )
+
+            events, established = pinner.check(tools)
+            if established:
+                logger.log("rugpull", "baseline", {"tools": sorted(t.name for t in tools)})
+            for event in events:
+                rugpull_blocked.add(event.tool)
+                logger.log(
+                    "rugpull",
+                    "suspect",
+                    {
+                        "tool": event.tool,
+                        "status": event.status,
+                        "old_hash": event.old_hash,
+                        "new_hash": event.new_hash,
+                        "diff": event.diff,
+                    },
+                )
             return tools
 
         @server.call_tool()
         async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
-            nonlocal downgraded
+            nonlocal downgraded, cap_logged
             call_id = f"t-{uuid.uuid4().hex[:12]}"
             tool_class = classify_tool(name, tool_classes)
             logger.log(
@@ -89,6 +142,12 @@ async def run_proxy(
                     "class": tool_class.value,
                 },
             )
+
+            if name in rugpull_blocked:
+                raise RuntimeError(
+                    f"policy_blocked: rug_pull_detected on tool {name} "
+                    f"(description changed after baseline)"
+                )
 
             if tool_class is ToolClass.SINK:
                 hits = detect_taint(arguments, taint_store)
@@ -120,6 +179,46 @@ async def run_proxy(
                         f"{hit.source_tool} ({hit.source_call_id}) reached "
                         f"{name}.{hit.sink_field}"
                     )
+
+                if not hits and downgraded and semantic_judge is not None:
+                    if semantic_judge.exhausted and not cap_logged:
+                        cap_logged = True
+                        logger.log("semantic", "cap_reached", {"max_calls": semantic_judge._max_calls})
+                    recent = list(taint_store)[-K:]
+                    verdict = await semantic_judge.judge(name, arguments, recent)
+                    logger.log(
+                        "semantic",
+                        "verdict",
+                        {
+                            "call_id": call_id,
+                            "influenced": verdict.influenced,
+                            "confidence": verdict.confidence,
+                            "reason": verdict.reason,
+                        },
+                    )
+                    if verdict.influenced and verdict.confidence >= 0.8:
+                        provenance = recent[-1] if recent else None
+                        logger.log(
+                            "taint",
+                            "edge",
+                            {
+                                "call_id": call_id,
+                                "sink_tool": name,
+                                "sink_field": "",
+                                "source_call_id": provenance.call_id if provenance else "",
+                                "source_tool": provenance.tool if provenance else "",
+                                "layer": "semantic",
+                                "blocked": True,
+                                "matched_snippet": "",
+                                "downgraded": True,
+                                "reason": verdict.reason,
+                                "confidence": verdict.confidence,
+                            },
+                        )
+                        raise RuntimeError(
+                            f"policy_blocked: semantic layer flagged tainted influence "
+                            f"on {name}: {verdict.reason}"
+                        )
 
             result = await backend_session.call_tool(name, arguments)
             logger.log(
@@ -158,6 +257,8 @@ async def run_proxy(
                     logger.log("taint", "downgraded", {"call_id": rec.call_id})
             return list(result.content)
 
-        front_read, front_write = await stack.enter_async_context(stdio_server())
+        front_read, front_write = await stack.enter_async_context(
+            stdio_server(stdin=stdin, stdout=stdout)
+        )
         await server.run(front_read, front_write, server.create_initialization_options())
         logger.log("session", "closed", {})

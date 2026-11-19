@@ -1,12 +1,29 @@
-"""污点追踪包：工具分类、归一化、分块、会话级污点存储（D3）与子串层传播检测（D4）。
+"""污点追踪包。
 
-D3：tools/call 拦截 + SOURCE 源标记。D4：污点传播 + sink 策略（alert/block + 能力降级）。
-D5 在此之上做语义层判定；描述扫描与 rug-pull 挂 tools/list。
+D3：工具分类、归一化、分块、会话级污点存储与 tools/call 源标记。
+D4：子串层传播检测 + sink 策略（alert/block + 能力降级）。
+D5：描述投毒静态扫描、rug-pull 哈希钉扎、语义判定层。
 """
 
 from .classify import ToolClass, classify_tool
+from .desc_scan import DescScanResult, scan_description
 from .detect import detect_taint
 from .normalize import normalize
+from .rugpull import RugPullEvent, RugPullPinner
+from .semantic import K, SemanticJudge, SemanticVerdict
 from .store import TaintStore
 
-__all__ = ["ToolClass", "classify_tool", "detect_taint", "normalize", "TaintStore"]
+__all__ = [
+    "ToolClass",
+    "classify_tool",
+    "DescScanResult",
+    "scan_description",
+    "detect_taint",
+    "normalize",
+    "RugPullEvent",
+    "RugPullPinner",
+    "K",
+    "SemanticJudge",
+    "SemanticVerdict",
+    "TaintStore",
+]

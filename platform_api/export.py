@@ -60,12 +60,14 @@ def summary_lines(detail: dict[str, Any]) -> list[str]:
     meta = detail.get("meta") or {}
     config = detail.get("config") or {}
     defense = (config.get("defense") or {})
+    # config.json 由 pydantic 按字段名序列化，攻击类是 class_（alias class 只在入参侧）
+    attack = config.get("attack") or {}
     return [
         f"判定：{VERDICT_LABEL.get(v.get('type'), v.get('type'))}（{v.get('type')}）"
         f" · success={bool(v.get('success'))}",
         f"证据：{v.get('evidence') or '无'}",
         f"靶标：{config.get('target', {}).get('id')} {config.get('target', {}).get('name', '')}"
-        f" · 攻击类：{(config.get('attack') or {}).get('class')}"
+        f" · 攻击类：{attack.get('class_') or attack.get('class') or '—'}"
         f" · 防御：{'on（' + str(defense.get('policy')) + '）' if defense.get('proxy') else 'off'}",
         f"轮次：{meta.get('rounds_used', len(detail.get('report', {}).get('trajectory', [])))}"
         f" / 上限 {config.get('attack', {}).get('max_rounds')}",
@@ -73,6 +75,59 @@ def summary_lines(detail: dict[str, Any]) -> list[str]:
         f" · engine_version={config.get('engine_version')}"
         f" · replay_hash={meta.get('replay_hash', '')}",
     ]
+
+
+def remediation_lines(detail: dict[str, Any]) -> list[str]:
+    """修复建议：只根据这一次运行真实发生了什么来写，不给通用安全清单。
+
+    项目书 §二 把"修复建议"算进报告交付物，所以这段文本是导出与前端共用的
+    （`reports.load_run` 会把它挂进 detail），避免两处各写一套口径。
+    """
+    v = _verdict(detail)
+    config = detail.get("config") or {}
+    defense = config.get("defense") or {}
+    vtype = v.get("type")
+    edges = detail.get("report", {}).get("taint_edges", [])
+    captured = sorted({c.get("tool") for c in detail.get("sink_capture", []) if c.get("tool")})
+    sinks = sorted({e.get("sink_tool") for e in edges if e.get("sink_tool")}) or captured
+    fields = sorted({f"{e.get('sink_tool')}.{e.get('sink_field')}" for e in edges if e.get("sink_field")})
+    layers = {e.get("layer") for e in edges}
+    out: list[str] = []
+
+    if vtype == "n_a_negative_control":
+        return ["该格为负对照（靶标不具备此攻击面），未执行攻击，无修复项。"]
+
+    if not defense.get("proxy"):
+        hit = "、".join(sinks) or "sink 工具"
+        out.append(
+            f"防御关闭：{hit} 在未做任何信息流检查的情况下携带了不可信内容"
+            f"（{v.get('evidence') or '见证据'}）。"
+        )
+        out.append("接入污点代理并把该 sink 的策略设为 block：`python -m engine.proxy --policy block`。")
+    elif vtype == "attack_failed":
+        out.append(
+            f"代理拦下了 {len(edges)} 条污点边（字段：{'、'.join(fields) or '—'}），"
+            "保持 block 策略即可。"
+        )
+    else:
+        out.append(f"代理在链路上但攻击仍达成（{v.get('evidence') or vtype}），需要人工复核该格。")
+
+    if layers and layers <= {"substring"}:
+        out.append(
+            "本次全部命中都来自子串层：改写型载荷不在覆盖范围内。"
+            "建议开启语义层（`--semantic` + DASHSCOPE_API_KEY）后重跑同一格对比。"
+        )
+    elif "semantic" in layers:
+        out.append("语义层参与命中：注意它是有成本与延迟的一层，block 决策建议保留人工复核窗口。")
+
+    if defense.get("proxy") and not defense.get("downgrade_on_untrusted"):
+        out.append("`downgrade_on_untrusted` 未开启：不可信内容仍可申请高危能力，建议保持默认开启。")
+
+    if vtype == "poisoning_executed":
+        out.append("工具描述被执行：按 R1–R5 复核该 server 的描述文本，并把描述哈希钉进部署清单。")
+    if vtype == "rug_pull_triggered":
+        out.append("描述漂移已触发：确认是版本升级还是供应链替换，未确认前固定使用钉扎版本。")
+    return out
 
 
 def to_json(detail: dict[str, Any]) -> str:
@@ -111,6 +166,8 @@ def to_markdown(detail: dict[str, Any]) -> str:
             f"- 防御 {lat.get('defense')}：p50 {lat.get('p50_ms')} ms / p95 {lat.get('p95_ms')} ms"
             f" / 均值 {lat.get('mean_ms')} ms（{lat.get('samples')} 次调用）",
         ]
+    lines += ["", "## 修复建议", ""]
+    lines += [f"- {s}" for s in remediation_lines(detail)]
     lines += ["", "---", "", COMPLIANCE, ""]
     return "\n".join(lines)
 
@@ -182,7 +239,12 @@ def to_html(detail: dict[str, Any]) -> str:
             f"<p class='sub'>round {step.get('round')}</p>"
             f"<pre><code>{html.escape(step.get('payload') or '')}</code></pre>"
         )
-    parts += [f"<div class='note'>{html.escape(COMPLIANCE)}</div>", "</main></body></html>"]
+    parts += [
+        "<h2>修复建议</h2>",
+        "<ul>" + "".join(f"<li>{html.escape(s)}</li>" for s in remediation_lines(detail)) + "</ul>",
+        f"<div class='note'>{html.escape(COMPLIANCE)}</div>",
+        "</main></body></html>",
+    ]
     return "".join(parts)
 
 

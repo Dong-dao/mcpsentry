@@ -53,6 +53,9 @@ def test_run_detail_carries_graph_and_repro(client: TestClient) -> None:
     assert detail["graph"]["nodes"], "污点图至少要有攻击者与靶标节点"
     assert detail["report"]["repro"]["engine_version"]
     assert {"attacker", "agent"} <= {n["kind"].split(":")[0] for n in detail["graph"]["nodes"]}
+    edges = detail["graph"]["edges"]
+    assert len({e["id"] for e in edges}) == len(edges), "边 id 必须唯一：前端拿它做 React key"
+    assert detail["remediation"], "报告必须带修复建议（项目书 §二 的交付项）"
 
 
 def test_missing_run_is_404_not_empty_200(client: TestClient) -> None:
@@ -65,8 +68,12 @@ def test_export_formats(client: TestClient) -> None:
     md = client.get(f"/api/runs/{run_id}/export", params={"format": "md"})
     assert md.headers["content-type"].startswith("text/markdown")
     assert "MCPSentry 运行报告" in md.text
+    assert "## 修复建议" in md.text
+    # config.json 里攻击类是 class_，导出取错键会安静地渲染成 None
+    assert "攻击类：A" in md.text and "攻击类：None" not in md.text
     html = client.get(f"/api/runs/{run_id}/export", params={"format": "html"}).text
     assert "<!doctype html>" in html[:40].lower()
+    assert "修复建议" in html
     assert client.get(f"/api/runs/{run_id}/export", params={"format": "exe"}).status_code == 422
 
 

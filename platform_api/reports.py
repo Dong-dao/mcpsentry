@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import export
+
 JSONL_FILES = ("trajectory.jsonl", "flow.jsonl", "sink_capture.jsonl")
 JSON_FILES = ("config.json", "report.json", "meta.json", "latency.json")
 # 查找顺序即优先级：矩阵正式产物 > 平台临时运行 > 正常任务 > 重放
@@ -148,7 +150,7 @@ def load_run(results_root: Path, run_id: str) -> dict[str, Any] | None:
     trajectory = _read_jsonl(base / "trajectory.jsonl")
     flow = _read_jsonl(base / "flow.jsonl")
     sink_capture = _read_jsonl(base / "sink_capture.jsonl")
-    return {
+    detail = {
         "run_id": run_id,
         "subdir": subdir,
         "path": str(base.relative_to(results_root.parent)),
@@ -162,3 +164,6 @@ def load_run(results_root: Path, run_id: str) -> dict[str, Any] | None:
         "graph": taint_graph(report, config, sink_capture=sink_capture),
         "verdict": report.get("verdict", {}),
     }
+    # 修复建议只算一次：导出与前端读同一个字段，避免两处口径漂移
+    detail["remediation"] = export.remediation_lines(detail)
+    return detail

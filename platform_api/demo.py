@@ -57,6 +57,7 @@ async def build_bundle(*, out: Path = BUNDLE) -> Path:
                 "trajectory": detail["trajectory"],
                 "flow": detail["flow"],
                 "sink_capture": detail["sink_capture"],
+                "remediation": detail["remediation"],
                 "meta": detail["meta"],
                 "markdown": export.to_markdown(detail),
                 "narrative": NARRATIVE[tier],

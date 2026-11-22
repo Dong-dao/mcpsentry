@@ -1,0 +1,17 @@
+# 构建上下文瘦身。注意两条不能省的保留项：
+#   bench/metrics/          —— 指标缓存，冷启动就要能读
+#   platform_api/demo/      —— 一键 demo 预置包，ECS 算力被占时评委靠它
+.git/
+.venv/
+venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+web/
+bench/results/
+bench/.work/
+platform_api/data/
+logs/
+screens/
+*.jsonl
+.env

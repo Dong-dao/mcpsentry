@@ -1,0 +1,56 @@
+# ECS 单机编排：Caddy 做 HTTPS 与来源收紧，api 只监听容器网。
+#   cd deploy && docker compose up -d
+# 域名写在 deploy/.env：MCPSENTRY_DOMAIN=api.example.com
+name: mcpsentry
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: mcpsentry-api:latest
+    init: true # 靶场与代理都是 spawn 出来的子进程，PID 1 要会收尸
+    restart: unless-stopped
+    environment:
+      MCPSENTRY_JOBS: "2" # 2 核：再多就是自己抢自己，延迟数字也就没意义了
+      MCPSENTRY_ORIGINS: ${MCPSENTRY_ORIGIN:-} # Qoder Sites 的前端来源，留空即只允许同源
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-} # 不填也能跑：代理只走子串层
+    volumes:
+      # 120 组矩阵产物与历史索引必须留在宿主机上：重建容器不该丢证据
+      - ../bench/results:/app/bench/results
+      - ../platform_api/data:/app/platform_api/data
+    expose:
+      - "8000"
+    networks: [front]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 25s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MCPSENTRY_DOMAIN: ${MCPSENTRY_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web/dist:/srv:ro # 私有化部署时同一台机器直出前端；Qoder Sites 走另一条路
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [front]
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  front:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

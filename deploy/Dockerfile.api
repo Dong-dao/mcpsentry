@@ -1,0 +1,35 @@
+# MCPSentry 后端镜像：引擎 + 靶场 + 平台一个容器。
+# 必须从仓库根目录构建（build 上下文要能看见 engine/ range/ bench/ platform_api/）：
+#   docker build -f deploy/Dockerfile.api -t mcpsentry-api .
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    PIP_NO_CACHE_DIR=1 \
+    MCPSENTRY_JOBS=2
+
+WORKDIR /app
+
+# mcp SDK 会 spawn 子进程（靶场后端 / 代理），只需要解释器本身；
+# 先装依赖再拷代码，改代码时不至于重跑 pip。
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+
+COPY engine ./engine
+COPY range ./range
+COPY bench ./bench
+COPY platform_api ./platform_api
+
+# 判定与靶场都不出网：镜像里不放任何密钥，运行期由 env 注入（可选的语义层才用得到）
+RUN useradd --create-home --uid 10001 mcpsentry \
+    && mkdir -p /app/bench/results /app/platform_api/data \
+    && chown -R mcpsentry:mcpsentry /app/bench /app/platform_api
+USER mcpsentry
+
+EXPOSE 8000
+
+# 2C4G 上跑矩阵是最容易 OOM 的姿势，健康检查顺带确认产物目录挂上了
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import json,urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4).read()"
+
+CMD ["python", "-m", "platform_api", "serve", "--host", "0.0.0.0", "--port", "8000"]

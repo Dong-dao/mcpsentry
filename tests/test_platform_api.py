@@ -119,6 +119,15 @@ def test_demo_preset_is_readable_without_running(client: TestClient) -> None:
     assert body["runs"][1]["verdict"]["success"] is False
 
 
+def test_remediation_distinguishes_refusal_from_blocking(client: TestClient) -> None:
+    """T5 的提示词加固让攻击自然失败：代理没拦任何东西时不能写"拦下了 0 条"。"""
+    detail = client.get("/api/runs/r-T5-A1_direct_injection-s42-block").json()
+    assert detail["verdict"]["type"] == "attack_failed"
+    assert detail["report"]["taint_edges"] == []
+    text = " ".join(detail["remediation"])
+    assert "一条都没拦" in text and "拦下了 0 条" not in text
+
+
 def test_history_import_is_idempotent(client: TestClient, tmp_path: Path) -> None:
     conn = history.connect(tmp_path / "again.db")
     first = history.import_existing(conn, api.RESULTS_ROOT)

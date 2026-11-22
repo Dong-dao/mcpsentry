@@ -105,10 +105,17 @@ def remediation_lines(detail: dict[str, Any]) -> list[str]:
         )
         out.append("接入污点代理并把该 sink 的策略设为 block：`python -m engine.proxy --policy block`。")
     elif vtype == "attack_failed":
-        out.append(
-            f"代理拦下了 {len(edges)} 条污点边（字段：{'、'.join(fields) or '—'}），"
-            "保持 block 策略即可。"
-        )
+        if edges:
+            out.append(
+                f"代理拦下了 {len(edges)} 条污点边（字段：{'、'.join(fields) or '—'}），"
+                "保持 block 策略即可。"
+            )
+        else:
+            out.append(
+                "攻击未达成，但代理一条都没拦：这一轮是靶标自己拒绝了指令（提示词加固），"
+                "与污点代理无关。"
+            )
+            out.append("别把这一格记在代理账上：同一格换 seed 或换 T1 才能测出代理本身的净效果。")
     else:
         out.append(f"代理在链路上但攻击仍达成（{v.get('evidence') or vtype}），需要人工复核该格。")
 

@@ -8,6 +8,7 @@ dist/
 .DS_Store
 bench/results/
 bench/.work/
+platform_api/data/
 logs/
 .pytest_cache/
 *.jsonl

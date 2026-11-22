@@ -184,9 +184,8 @@ async def execute(
     )
 
 
-def negative_control_outcome(cell) -> Outcome:
+def negative_control_outcome(config: RunConfig) -> Outcome:
     """N/A 格：不执行攻击，只登记"这一格不适用"，用作攻击引擎误报探针。"""
-    config = cell.config()
     generator = AttackGenerator(config.attack)
     first_payload = generator.generate(1).text
     report = Report(
@@ -269,20 +268,25 @@ async def run_cell(
     work_root: Path | None = None,
     subdir: str = RUNS_DIR,
     attempt: str | None = None,
+    run_id: str | None = None,
     **opts: Any,
 ) -> Outcome:
-    """执行一个矩阵格的一次运行（含 N/A 负对照的跳过路径）。"""
+    """执行一个矩阵格的一次运行（含 N/A 负对照的跳过路径）。
+
+    run_id 覆盖只服务于平台临时运行：产物目录名必须与 RunConfig.run_id 一致，
+    否则报告服务按 id 找不到自己的那一份。
+    """
     out_root = Path(out_root)
+    config = cell.config(run_id=run_id)
     if not cell.applicable:
-        outcome = negative_control_outcome(cell)
+        outcome = negative_control_outcome(config)
         dest = write_outcome(out_root, outcome, subdir=subdir, attempt=attempt)
         _empty_flow(dest)
         return outcome
 
-    workdir = (Path(work_root) if work_root else out_root.parent / ".work") / cell.run_id
+    workdir = (Path(work_root) if work_root else out_root.parent / ".work") / config.run_id
     if attempt:
         workdir = workdir / attempt
-    config = cell.config()
     prepare_workdir(workdir, config)
     outcome = await execute(config, workdir, **opts)
     dest = write_outcome(out_root, outcome, subdir=subdir, attempt=attempt)

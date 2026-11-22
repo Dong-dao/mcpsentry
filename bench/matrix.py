@@ -42,11 +42,12 @@ class Cell:
     def short_class(self) -> str:
         return self.attack_class.split("_", 1)[0]
 
-    def config(self, *, downgrade: bool = True) -> RunConfig:
+    def config(self, *, downgrade: bool = True, run_id: str | None = None) -> RunConfig:
+        """run_id 可覆盖：平台临时运行要独立目录，但格定义与矩阵格完全一致。"""
         proxy = self.defense != "off"
         oracle = oracle_for(self.entry, self.seed)
         return RunConfig(
-            run_id=self.run_id,
+            run_id=run_id or self.run_id,
             target=TargetSpec(
                 id=self.entry.id,
                 name=self.entry.name,

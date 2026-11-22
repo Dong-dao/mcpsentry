@@ -7,6 +7,7 @@ node_modules/
 dist/
 .DS_Store
 bench/results/
+bench/.work/
 logs/
 .pytest_cache/
 *.jsonl

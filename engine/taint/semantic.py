@@ -88,7 +88,8 @@ async def _dashscope_llm(prompt: str) -> str:
         "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
     url = base.rstrip("/") + "/chat/completions"
-    async with httpx.AsyncClient(timeout=10) as client:
+    # trust_env=False：不继承环境代理（国内端点直连；避免损坏的代理配置与静默流量劫持）
+    async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
         resp = await client.post(
             url,
             headers={"Authorization": f"Bearer {api_key}"},

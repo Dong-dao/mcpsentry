@@ -6,6 +6,7 @@
 - 引擎（代理 / 污点 / 攻击 / 判定）：`engine/`，成员 A
 - 靶场 / 平台 / 前端 / 部署：`range/` `bench/` `platform_api/` `web/` `deploy/`，成员 B
 - 数字：`bench/metrics/summary.md`（66 组真实执行 + 54 组负对照，LLM 不参与任何判定）
+- 在线演示：<https://mcpsentry-403envguqy1.qoder.zone>（前端 Qoder Sites，后端 `https://api.cllgu.icu` 跑在自建靶场的授权环境里）
 
 ## 30 秒跑起来
 
@@ -21,7 +22,7 @@ cd web && npm install && npm run dev     # 前端：http://127.0.0.1:5173
 不想起前端的话，直接 `curl localhost:8000/api/metrics`，或者：
 
 ```bash
-python -m pytest -q                      # 126 项：引擎回归 + 靶场/矩阵/平台契约
+python -m pytest -q                      # 130 项：引擎回归 + 靶场/矩阵/平台契约
 ```
 
 ## 它拦什么
@@ -36,15 +37,15 @@ python -m pytest -q                      # 126 项：引擎回归 + 靶场/矩�
 防御侧四层：子串层（归一化后查污点片段）、语义层（可选，qwen 判"这段是不是指令"）、
 能力降级（不可信内容不得申请高危工具，CaMeL-lite）、描述钉扎（rug-pull 时哈希不匹配即触发）。
 
-## 实测数字（D9–D11，engine 0.4.0）
+## 实测数字（D9–D12，engine 0.4.0）
 
 | 指标 | 设计目标 | 实测 |
 |---|---|---|
-| 外渗 ASR（无防御） | > 60% | 91%（全格加权） |
-| ASR（代理 block） | 下降 ≥ 80% | 9%（残留全部来自 T3 描述投毒） |
-| 描述投毒/漂移检出率 | ≥ 95% | 29/30 |
+| 外渗 ASR（无防御） | > 60% | 91%（30/33 执行格加权） |
+| ASR（代理 block） | 下降 ≥ 80% | 0%（33 格全 0，含 D12 修复后的 T3） |
+| 描述投毒/漂移检出率 | ≥ 95% | 30/30 |
 | 正常任务误报率 | < 5% | 0/47（剔除 §3 故意逼出的 3 条压力任务） |
-| 代理延迟开销 p95 | < 50 ms | 最大 Δp95 25.8 ms，均值 5.9 ms |
+| 代理延迟开销 p95 | < 50 ms | Δp50 4.5 ms、Δp95 3.4 ms，最大 Δp95 25.9 ms |
 | 回放一致率 | 100% | 16/16 |
 
 口径差异、唯一一次漏检、T5 加固为何只挡住"管理员口吻"，都写在
@@ -70,7 +71,7 @@ range/         B：靶标 T1–T5、金丝雀埋点、mock sink、受害者 Agen
 bench/         B：矩阵/正常任务/重放 runner + 汇总（规格由 A 出）
 platform_api/  B：FastAPI 后端（编排 / 报告 / 历史 / 导出）+ 预置 demo 包
 web/           B：React 前端（落地页含定价 / 运行台 / 污点图 / 指标图表 / 一键 demo）
-deploy/        B：Docker Compose + Caddy + ECS/Qoder Sites 运维手册
+deploy/        B：Docker Compose + nginx 网关 + Cloudflare 隧道 + Qoder Sites 运维手册
 docs/          规格：污点模型与策略、判定 oracle、基准规格、项目书、技术栈与分工
 ```
 
@@ -85,5 +86,11 @@ docs/          规格：污点模型与策略、判定 oracle、基准规格、�
 
 ## 部署
 
-后端阿里云 ECS 2C4G（Docker Compose + Caddy HTTPS），前端 Qoder Sites 静态托管，
+后端阿里云 ECS（2 核 2G，Docker Compose：api + nginx 网关 + cloudflared），前端 Qoder Sites。
+大陆服务器未备案、80/443 用不了，公网入口走 Cloudflare 命名隧道 → `http://gateway:8080`，
+HTTPS 证书由 Cloudflare 签。写接口在网关限流 6 次/分钟，`/api/matrix` 公网直接 403。
 运维手册与安全开关见 [`deploy/README.md`](deploy/README.md)。
+
+## 开源许可
+
+Apache License 2.0，见 [`LICENSE`](LICENSE)。Copyright 2026 Dong-dao、陈苗苗。

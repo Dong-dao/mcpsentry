@@ -5,6 +5,15 @@
 `python -m platform_api serve --host 0.0.0.0 --port 8000` 在宿主机直接跑过、Caddyfile
 括号配平检查过，但真正的 `docker build` 与证书签发要在 ECS 上完成（见 §5 校验命令）。
 
+> **2026-11-23 上线后的实际形态与本节有 4 处出入**（下面各节保留 B 的原方案，改动以这里为准）：
+> ① 机型是 **2 核 2G**，不是 2C4G；② 大陆服务器**未备案**，80/443 签不出证书，所以**安全组只放行 22**，
+> caddy 服务**不起**——公网入口改用 **Cloudflare 命名隧道**（免备案、证书由 CF 签），
+> Caddyfile 那层反代/限流由新增的 `nginx.conf` 网关容器（:8080）承担，`/api/matrix` 在网关直接 403；
+> ③ `.env` 里 `MCPSENTRY_ORIGIN` 填 Sites 站点地址，CORS 才放行；④ 启动必须**双 `-f` 且点名服务**，
+> 裸 `up -d` 会去拉 caddy：
+> `cd /root/<项目>/deploy && docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d api gateway tunnel`
+> 域名与隧道 UUID 等运维取值不在仓库里。
+
 ## 1. 拓扑
 
 ```

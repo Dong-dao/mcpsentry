@@ -53,11 +53,26 @@ export default function Dashboard() {
     loadRuns().catch((e: Error) => setError(e.message));
   }, [loadRuns]);
 
+  const historyLoaded = page !== null;
+  const selectedRun = page?.items.find((run) => run.run_id === selected);
+  const selectedStatus = selectedRun?.status;
+  const selectedError = selectedRun?.error;
+  const selectedPending = selectedStatus === "queued" || selectedStatus === "running";
+
   useEffect(() => {
-    if (!selected) return setDetail(null);
     setDetail(null);
-    api.run(selected).then(setDetail).catch((e: Error) => setError(e.message));
-  }, [selected]);
+    setError("");
+    if (!selected || !historyLoaded || selectedPending) return;
+    if (selectedStatus === "failed") {
+      setError(selectedError || "评测执行失败，请查看运行日志。");
+      return;
+    }
+    let cancelled = false;
+    api.run(selected)
+      .then((result) => { if (!cancelled) setDetail(result); })
+      .catch((e: Error) => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [selected, historyLoaded, selectedPending, selectedStatus, selectedError]);
 
   // 有排队/执行中的运行时才轮询，空页面不打后端
   const pending = page?.items.some((r) => r.status === "queued" || r.status === "running");
@@ -65,10 +80,9 @@ export default function Dashboard() {
     if (!pending) return;
     const t = setInterval(() => {
       loadRuns().catch(() => undefined);
-      if (selected) api.run(selected).then(setDetail).catch(() => undefined);
     }, 4000);
     return () => clearInterval(t);
-  }, [pending, loadRuns, selected]);
+  }, [pending, loadRuns]);
 
   const startRun = async () => {
     setError("");
@@ -76,8 +90,8 @@ export default function Dashboard() {
     try {
       const res = await api.startRun({ ...form, seed: Number(form.seed), defense: form.defense as Tier });
       setMessage(`已提交 ${res.run_id}，后台执行中（2 核机器上会排队）`);
-      navigate("/dashboard", { run: res.run_id });
       await loadRuns();
+      navigate("/dashboard", { run: res.run_id });
     } catch (e) {
       setError(String(e));
     }
@@ -313,7 +327,7 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        {selected ? detail ? <RunDetailPanel detail={detail} /> : <Loading label={`读取 ${selected} 的产物…`} /> : (
+        {selected ? detail ? <RunDetailPanel detail={detail} /> : selectedStatus === "failed" ? null : <Loading label={selectedPending ? "后台评测中，完成后自动显示报告…" : `读取 ${selected} 的产物…`} /> : (
           <Panel title="详情" subtitle="点左侧任意一行，或从一键 demo 进入">
             <p className="text-sm text-slate-400">
               这里会展开判定证据、污点传播图、攻击轨迹、sink 捕获与修复建议——全部来自该组运行的原始产物文件。

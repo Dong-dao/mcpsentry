@@ -12,3 +12,6 @@ platform_api/data/
 logs/
 .pytest_cache/
 *.jsonl
+
+# 本地运维件：真实 IP / SSH 私钥路径 / 隧道 token，绝不入库
+deploy/OPS.local.md

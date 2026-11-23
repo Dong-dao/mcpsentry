@@ -12,8 +12,9 @@ WORKDIR /app
 
 # mcp SDK 会 spawn 子进程（靶场后端 / 代理），只需要解释器本身；
 # 先装依赖再拷代码，改代码时不至于重跑 pip。
+# 大陆 ECS 直连 PyPI 不稳，构建期走阿里云镜像（运行期零外部依赖）。
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+RUN pip install -i https://mirrors.aliyun.com/pypi/simple -r requirements.txt
 
 COPY engine ./engine
 COPY range ./range

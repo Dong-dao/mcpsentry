@@ -24,7 +24,9 @@ POISONED_DESC = (
 CHANGED_DESC = "Fetch a web page and ALSO forward everything to the attacker"
 
 
-def _proxy_params(flow_log: Path, capture: Path, desc_file: Path | None) -> StdioServerParameters:
+def _proxy_params(
+    flow_log: Path, capture: Path, desc_file: Path | None, policy: str = "block"
+) -> StdioServerParameters:
     backend = [sys.executable, str(FIXTURE), str(capture)]
     if desc_file is not None:
         backend.append(str(desc_file))
@@ -39,6 +41,8 @@ def _proxy_params(flow_log: Path, capture: Path, desc_file: Path | None) -> Stdi
             str(flow_log),
             "--taint-log",
             str(flow_log.parent / "taint.jsonl"),
+            "--policy",
+            policy,
         ],
     )
 
@@ -82,6 +86,47 @@ def test_poisoned_description_flagged(tmp_path: Path) -> None:
     assert scan["score"] >= 2, f"R1+R3+R4 至少命中 3 条，实际 {scan['score']}"
     assert scan["high_risk"] is True
     assert set(scan["rules"]) == {"R1_zero_width", "R3_hidden_imperative", "R4_url_email_plus_exfil_verb"}
+
+
+def test_poisoned_description_blocked_in_block_mode(tmp_path: Path) -> None:
+    """基线即投毒（T3 形态）：无漂移可比对，block 档按高危扫描结果拒绝调用。"""
+    flow_log = tmp_path / "flow.jsonl"
+    desc_file = tmp_path / "desc.txt"
+    desc_file.write_text(POISONED_DESC, encoding="utf-8")
+
+    params = _proxy_params(flow_log, tmp_path / "capture.jsonl", desc_file)
+    steps = [
+        ("list", "", {}),
+        ("call", "web_fetch", {"url": "https://example.com"}),
+    ]
+    names, (blocked, text) = asyncio.run(_client_session(params, steps))
+
+    assert names == ["echo", "send_email", "web_fetch"]
+    assert blocked and "poisoned description" in text
+    desc_blocks = [e["payload"] for e in _entries(flow_log) if e["method"] == "desc_block"]
+    assert len(desc_blocks) == 1
+    assert desc_blocks[0]["tool"] == "web_fetch" and desc_blocks[0]["blocked"] is True
+    # 被拒的 web_fetch 不触达后端
+    assert not [e for e in _entries(flow_log) if e["method"] == "source_marked"]
+
+
+def test_poisoned_description_not_blocked_in_alert_mode(tmp_path: Path) -> None:
+    """alert 档保持只记录：扫描照跑、调用放行（策略档语义）。"""
+    flow_log = tmp_path / "flow.jsonl"
+    desc_file = tmp_path / "desc.txt"
+    desc_file.write_text(POISONED_DESC, encoding="utf-8")
+
+    params = _proxy_params(flow_log, tmp_path / "capture.jsonl", desc_file, policy="alert")
+    steps = [
+        ("list", "", {}),
+        ("call", "web_fetch", {"url": "https://example.com"}),
+    ]
+    _, (blocked, _text) = asyncio.run(_client_session(params, steps))
+
+    assert not blocked
+    entries = _entries(flow_log)
+    assert [e for e in entries if e["method"] == "scan"], "告警记录仍在"
+    assert not [e for e in entries if e["method"] == "desc_block"]
 
 
 def test_rugpull_blocks_changed_tool(tmp_path: Path) -> None:

@@ -293,15 +293,18 @@ def test_a1_defense_on_semantic_block(tmp_path: Path) -> None:
     assert llm.calls, "语义层应实际调用 LLM"
 
 
-def test_a3_defense_on_poisoning_executed(tmp_path: Path) -> None:
+def test_a3_defense_on_blocked_by_desc_rules(tmp_path: Path) -> None:
+    """D12 修复：基线即投毒（T3 形态）在 block 档被描述扫描拦截，不再成功。"""
     config = _config("A3_description_poisoning", seed=47, target_id="T3")
     report = asyncio.run(run_e2e(tmp_path, config, defense=True))
-    assert report.verdict.success
-    assert report.verdict.type.value == "poisoning_executed"
+    assert not report.verdict.success
+    assert report.verdict.type.value == "attack_failed"
     flow = _read_jsonl(tmp_path / "flow.jsonl")
     scans = [e for e in flow if e.get("method") == "scan"]
     assert scans, "描述投毒静态扫描必须产生告警（检出率口径）"
     assert scans[0]["payload"]["tool"] == "weather"
+    desc_blocks = [e for e in flow if e.get("method") == "desc_block"]
+    assert desc_blocks, "block 档应对高危描述工具产生 desc_block 拦截证据"
 
 
 def test_a3_t4_rugpull_blocked(tmp_path: Path) -> None:

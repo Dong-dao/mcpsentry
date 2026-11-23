@@ -87,8 +87,17 @@ def negative_control_check(results: dict[str, RunResult]) -> list[str]:
 
 
 def defense_effectiveness(results: dict[str, RunResult]) -> dict[str, float]:
-    """防御有效性：ASR_off − ASR_block（按攻击类汇总适用格）。"""
-    cells = asr_table(results)
+    """防御有效性：ASR_off − ASR_block（按攻击类汇总，规格 §4"按适用格"）。
+
+    N/A 负对照格（n_a_negative_control）不参与分母：它们 0 成功，
+    混入会把 off 档 ASR 摊薄（B 的 D9 交数观察 #1）。
+    """
+    applicable = {
+        run_id: run
+        for run_id, run in results.items()
+        if run.report.verdict.type is not VerdictType.N_A_NEGATIVE_CONTROL
+    }
+    cells = asr_table(applicable)
     by_class: dict[str, dict[str, list[tuple[int, int]]]] = {}
     for (_, cls, defense), pair in cells.items():
         by_class.setdefault(cls, {}).setdefault(defense, []).append(pair)

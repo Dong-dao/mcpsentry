@@ -11,6 +11,8 @@ D4：污点传播——SINK 调用先跑子串层检测；命中按 policy 处�
 D5：tools/list 跑描述投毒扫描（poison_score≥2 高危）+ rug-pull 哈希钉扎（基线
     之后的描述变更记 RUG_PULL_SUSPECT 并 block 该工具）；子串层未命中且已降级时，
     SINK 调用走语义层复核（influenced∧confidence≥0.8 → 拦截，单会话 20 次上限）。
+D12：block 档下，描述扫描高危的工具同样在调用时被拒（desc_block）——D9 实跑
+    暴露的 T3 盲区（基线即投毒、无漂移可比对，扫描只记录不拦截）；alert 档仍只记录。
 """
 
 from __future__ import annotations
@@ -64,6 +66,7 @@ async def run_proxy(
     downgraded = False
     pinner = RugPullPinner()
     rugpull_blocked: set[str] = set()
+    desc_highrisk: set[str] = set()
     cap_logged = False
     call_seq = 0
     if semantic_judge is None:
@@ -88,6 +91,7 @@ async def run_proxy(
 
         @server.list_tools()
         async def handle_list_tools() -> list[Tool]:
+            nonlocal desc_highrisk
             logger.log("front_request", "tools/list", {})
             result = await backend_session.list_tools()
             tools = list(result.tools)
@@ -110,6 +114,8 @@ async def run_proxy(
                             "high_risk": scan.high_risk,
                         },
                     )
+                if scan.high_risk:
+                    desc_highrisk.add(tool.name)
 
             events, established = pinner.check(tools)
             if established:
@@ -159,6 +165,16 @@ async def run_proxy(
                 raise RuntimeError(
                     f"policy_blocked: rug_pull_detected on tool {name} "
                     f"(description changed after baseline)"
+                )
+
+            if name in desc_highrisk and policy_mode is PolicyMode.BLOCK:
+                logger.log(
+                    "taint",
+                    "desc_block",
+                    {"call_id": call_id, "tool": name, "blocked": True},
+                )
+                raise RuntimeError(
+                    f"policy_blocked: poisoned description detected on tool {name}"
                 )
 
             if tool_class is ToolClass.SINK:

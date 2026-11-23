@@ -328,10 +328,10 @@ def render_markdown(payload: dict[str, Any], summary) -> str:
     ]
     eff = payload["effectiveness_applicable_only"]
     lines += [
-        "按适用格汇总（§4 原文口径）；最后一列是 `engine.analysis` 现在的算法（分母含 N/A 格），",
-        "两者差异见 `bench/metrics/notes.md`。",
+        "按适用格汇总（§4 原文口径）。`engine.analysis.defense_effectiveness` 自 D12 起",
+        "同样过滤 N/A 负对照格（观察 #1 的修复），两列口径一致。",
         "",
-        "| 攻击类 | ASR off | ASR block | 有效性（仅适用格） | canonical（含 N/A 格） |",
+        "| 攻击类 | ASR off | ASR block | 有效性（仅适用格） | canonical |",
         "|---|---|---|---|---|",
     ]
     for cls, row in eff.items():

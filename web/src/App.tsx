@@ -47,7 +47,9 @@ export default function App() {
             className={`badge ${health ? "v-good" : "v-bad"}`}
             title={health ? `${health.history.runs} 组已索引` : "读不到 /api/health：后端未启动"}
           >
-            {health ? `后端在线 · ${health.history.runs} 组` : "后端离线"}
+            {health
+              ? `${import.meta.env.VITE_STATIC === "1" ? "静态演示版" : "后端在线"} · ${health.history.runs} 组`
+              : "后端离线"}
           </span>
         </div>
       </header>

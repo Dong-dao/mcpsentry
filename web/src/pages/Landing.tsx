@@ -112,7 +112,7 @@ export default function Landing() {
           <StatCard
             label="ASR（代理 block）"
             value={asrOn === null ? "—" : pct(asrOn)}
-            hint="同一批格只多了一个代理；残留全部来自 T3 描述投毒——那一档只能降级能力，不能拒调用"
+            hint="同一批格只多了一个代理；含 T3 描述投毒与 T4 rug-pull 在内，全部适用格拦到 0"
             tone="text-good"
           />
           <StatCard

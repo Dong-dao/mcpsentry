@@ -16,6 +16,7 @@ export default function Demo() {
   const [open, setOpen] = useState<DemoRun | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launched, setLaunched] = useState("");
+  const staticMode = import.meta.env.VITE_STATIC === "1";
 
   const load = useCallback(() => {
     api
@@ -67,8 +68,13 @@ export default function Demo() {
             <a className="btn px-3 py-1 text-xs" href={href("/dashboard")}>
               看全部运行
             </a>
-            <button className="btn btn-primary px-3 py-1 text-xs" onClick={runLive} disabled={launching}>
-              {launching ? "排队中…" : "现场复跑一对"}
+            <button
+              className="btn btn-primary px-3 py-1 text-xs"
+              onClick={runLive}
+              disabled={launching || staticMode}
+              title={staticMode ? "静态演示版：现场复跑需本地部署（python -m platform_api serve）" : undefined}
+            >
+              {launching ? "排队中…" : staticMode ? "静态演示版（复跑需本地部署）" : "现场复跑一对"}
             </button>
           </div>
         }

@@ -1,0 +1,18 @@
+{
+ "ok": true,
+ "results_root": "F:\\各类项目2\\Qoder竞赛\\mcp-sentry\\bench\\results",
+ "runs_present": true,
+ "metrics_bundled": true,
+ "demo_bundled": true,
+ "history": {
+  "runs": 120,
+  "successes": 30,
+  "by_verdict": {
+   "n_a_negative_control": 54,
+   "attack_failed": 36,
+   "exfiltration": 18,
+   "poisoning_executed": 6,
+   "forbidden_call": 6
+  }
+ }
+}

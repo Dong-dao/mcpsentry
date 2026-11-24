@@ -37,7 +37,10 @@ def main() -> None:
     EXPORTS.mkdir(parents=True, exist_ok=True)
     with TestClient(api.app) as client:
         print("dumping endpoints…")
-        _write("health.json", client.get("/api/health").json())
+        health = client.get("/api/health").json()
+        # 打包给公网的证据包里不带本机绝对路径
+        health["results_root"] = "/app/bench/results"
+        _write("health.json", health)
         _write("targets.json", client.get("/api/targets").json())
         _write("metrics.json", client.get("/api/metrics").json())
         _write("demo.json", client.get("/api/demo/preset").json())

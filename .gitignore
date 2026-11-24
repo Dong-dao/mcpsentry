@@ -15,3 +15,6 @@ logs/
 
 # 本地运维件：真实 IP / SSH 私钥路径 / 隧道 token，绝不入库
 deploy/OPS.local.md
+
+# 静态保底版临时产物（勿入库，9.9MB）
+web/dist-static/

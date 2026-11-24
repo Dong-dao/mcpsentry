@@ -1,6 +1,6 @@
 {
  "ok": true,
- "results_root": "F:\\各类项目2\\Qoder竞赛\\mcp-sentry\\bench\\results",
+ "results_root": "/app/bench/results",
  "runs_present": true,
  "metrics_bundled": true,
  "demo_bundled": true,

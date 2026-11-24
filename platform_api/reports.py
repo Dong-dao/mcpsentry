@@ -50,8 +50,10 @@ def taint_graph(
 ) -> dict[str, Any]:
     """污点传播图：攻击者 → 靶标 Agent → 工具，以及 source→sink 的污点边。
 
-    `column` 是给前端的分层布局提示（0 最左）；节点 id 用 call_id，
-    同一工具多次调用因此是两个节点——图要讲的是"这一次调用污染了那一次外发"。
+    两个布局提示：`column` 按角色分层（0 攻击者 → 1 Agent → 2 污点源调用 → 3 sink 调用），
+    `round` 是行号——自适应攻击的轨迹是累积的，同一 call_id 会在后续每轮重复出现，
+    所以每个调用只建一次节点、按首次出现的轮次定位。节点 id 用 call_id，
+    同一工具多次调用因此是多个节点——图要讲的是"这一次调用污染了那一次外发"。
 
     防御关闭时代理不在链路上，`report.taint_edges` 与轨迹里的 call_id 都是空的，图会退化
     成两个点。这时用 `sink_capture.jsonl`（靶场后端原样落盘的 sink 载荷）补出送达节点：
@@ -91,16 +93,15 @@ def taint_graph(
     for step in report.get("trajectory", []):
         for call in step.get("tool_calls", []):
             cid = call.get("call_id") or f"{call.get('tool')}-{step['round']}"
-            nodes.setdefault(
-                cid,
-                {
-                    "id": cid,
-                    "label": f"{call.get('tool')} · {json.dumps(call.get('args', {}), ensure_ascii=False)[:60]}",
-                    "kind": "call",
-                    "column": 2,
-                    "round": step.get("round"),
-                },
-            )
+            if cid in nodes:
+                continue  # 累积轨迹里重复出现，不重复建点也不重复计 hits
+            nodes[cid] = {
+                "id": cid,
+                "label": f"{call.get('tool')} · {json.dumps(call.get('args', {}), ensure_ascii=False)[:60]}",
+                "kind": "call",
+                "column": 2,
+                "round": step.get("round"),
+            }
             add_edge(f"agent:{target_id}", cid, label=f"round {step.get('round')}", state="call")
 
     for edge in report.get("taint_edges", []):
@@ -111,6 +112,11 @@ def taint_graph(
         ):
             if key and key not in nodes:
                 nodes[key] = {"id": key, "label": f"{label or key}", "kind": kind, "column": col}
+        # 轨迹里先建成的调用节点默认落在源列；被当作 sink 用过就移到 sink 列，
+        # 否则 12 个调用挤在一列，前端画出来是一根竖线加一捆横线。
+        if dst and dst in nodes and nodes[dst]["column"] < 3:
+            nodes[dst]["column"] = 3
+            nodes[dst]["kind"] = "sink"
         add_edge(
             src,
             dst,

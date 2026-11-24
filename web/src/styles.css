@@ -19,7 +19,7 @@
     @apply rounded-xl border border-line bg-panel/70 p-5;
   }
   .btn {
-    @apply inline-flex items-center gap-2 rounded-lg border border-line bg-panel px-4 py-2 text-sm
+    @apply inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-panel px-4 py-2 text-sm
     font-medium text-slate-200 transition hover:border-sky-500/60 hover:text-white
     disabled:cursor-not-allowed disabled:opacity-45;
   }
@@ -31,10 +31,10 @@
     outline-none focus:border-sky-500/70;
   }
   .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold;
   }
   .th {
-    @apply px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400;
+    @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400;
   }
   .td {
     @apply border-t border-line px-3 py-2 align-top text-sm;
@@ -66,4 +66,28 @@
 }
 .react-flow__edge-text {
   font-size: 10px;
+}
+
+/* React Flow 自带控件与水印是浅色主题，嵌在深色页面里会留两块白框 */
+.react-flow__controls {
+  border: 1px solid #232a38;
+  border-radius: 8px;
+  box-shadow: none;
+  overflow: hidden;
+  background: #151922;
+}
+.react-flow__controls-button {
+  width: 22px;
+  height: 22px;
+  border-bottom: 1px solid #232a38;
+  background: #151922;
+  color: #c8cede;
+  fill: #c8cede;
+}
+.react-flow__controls-button:hover {
+  background: #1b2230;
+}
+.react-flow__attribution {
+  background: transparent;
+  color: #4b5566;
 }

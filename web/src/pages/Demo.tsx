@@ -111,7 +111,10 @@ export default function Demo() {
               {/* 折叠态也要有图：污点传播图是这一页的主角，不该藏在按钮后面 */}
               {open?.run_id === run.run_id ? null : (
                 <div className="mt-4">
-                  <TaintGraphView graph={run.graph} height={300} />
+                  <TaintGraphView graph={run.graph} height={320} />
+                  <p className="mono mt-2 text-[11px] text-slate-500">
+                    每个调用点是一格（r = 轮次），绿线 = 代理拦下的污点边，红线 = 载荷真的送达后端；可拖动缩放。
+                  </p>
                 </div>
               )}
               {open?.run_id === run.run_id && (

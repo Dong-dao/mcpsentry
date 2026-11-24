@@ -759,7 +759,7 @@
         "target": "agent:T4"
       },
       {
-        "hits": 6,
+        "hits": 1,
         "id": "agent:T4->t-000000000000",
         "label": "round 1",
         "source": "agent:T4",
@@ -767,7 +767,7 @@
         "target": "t-000000000000"
       },
       {
-        "hits": 5,
+        "hits": 1,
         "id": "agent:T4->t-000000000001",
         "label": "round 2",
         "source": "agent:T4",
@@ -775,7 +775,7 @@
         "target": "t-000000000001"
       },
       {
-        "hits": 4,
+        "hits": 1,
         "id": "agent:T4->t-000000000002",
         "label": "round 3",
         "source": "agent:T4",
@@ -783,7 +783,7 @@
         "target": "t-000000000002"
       },
       {
-        "hits": 3,
+        "hits": 1,
         "id": "agent:T4->t-000000000003",
         "label": "round 4",
         "source": "agent:T4",
@@ -791,7 +791,7 @@
         "target": "t-000000000003"
       },
       {
-        "hits": 2,
+        "hits": 1,
         "id": "agent:T4->t-000000000004",
         "label": "round 5",
         "source": "agent:T4",

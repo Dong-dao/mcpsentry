@@ -44,11 +44,15 @@ export function Panel({
 
 export function VerdictBadge({ type }: { type: VerdictType | null | undefined }) {
   if (!type) return <span className="badge v-info">未运行</span>;
+  // 判定名与净效果分两行：运行台历史表的判定列只有 ~96px，
+  // 挤在一枚胶囊里会被压成两字宽、中文逐字竖排。
   return (
-    <span className={`badge ${TONE[type] ?? "v-info"}`}>
-      {VERDICT_LABEL[type] ?? type}
+    <span className="inline-flex flex-col items-start gap-1">
+      <span className={`badge ${TONE[type] ?? "v-info"}`}>{VERDICT_LABEL[type] ?? type}</span>
       {type !== "n_a_negative_control" && (
-        <span className="ml-1 font-mono opacity-70">{type === "attack_failed" ? "防御生效" : "攻击成功"}</span>
+        <span className={`mono ${type === "attack_failed" ? "text-good" : "text-bad"}`}>
+          {type === "attack_failed" ? "防御生效" : "攻击成功"}
+        </span>
       )}
     </span>
   );

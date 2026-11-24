@@ -268,7 +268,9 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="max-h-[560px] overflow-auto">
-                <table className="w-full">
+                {/* table-fixed：自动布局下 40 字符的 run_id 把表格撑得比卡片还宽，
+                    状态/轮次两列被挤出可视区；定宽后 truncate 才真的生效。 */}
+                <table className="w-full table-fixed">
                   <thead className="sticky top-0 bg-panel">
                     <tr>
                       <th className="th">运行</th>
@@ -287,8 +289,10 @@ export default function Dashboard() {
                         }`}
                       >
                         <td className="td">
-                          <div className="mono truncate text-slate-200">{r.run_id}</div>
-                          <div className="mono text-[11px] text-slate-500">
+                          <div className="mono truncate text-slate-200" title={r.run_id}>
+                            {r.run_id}
+                          </div>
+                          <div className="mono truncate text-[11px] text-slate-500">
                             {r.target} · {ATTACK_LABEL[r.attack_class] ?? r.attack_class} · {r.defense} · seed {r.seed}
                             {r.note ? ` · ${r.note}` : ""}
                           </div>

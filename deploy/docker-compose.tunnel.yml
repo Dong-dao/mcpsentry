@@ -29,7 +29,7 @@ services:
   tunnel:
     image: cloudflare/cloudflared@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
     restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "--url", "http://gateway:8080"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
     networks: [front]
     depends_on:
       gateway:

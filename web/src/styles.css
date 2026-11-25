@@ -3,6 +3,9 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
   html {
     scroll-behavior: smooth;
   }
@@ -10,16 +13,16 @@
     @apply bg-ink text-slate-200 antialiased;
   }
   ::selection {
-    background: rgba(61, 108, 255, 0.35);
+    background: rgba(14, 165, 233, 0.3);
   }
 }
 
 @layer components {
   .panel {
-    @apply rounded-xl border border-line bg-panel/70 p-5;
+    @apply min-w-0 rounded-xl border border-line bg-panel/70 p-6;
   }
   .btn {
-    @apply inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-panel px-4 py-2 text-sm
+    @apply inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-panel px-5 py-3 text-base
     font-medium text-slate-200 transition hover:border-sky-500/60 hover:text-white
     disabled:cursor-not-allowed disabled:opacity-45;
   }
@@ -27,20 +30,26 @@
     @apply border-sky-500/70 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25;
   }
   .field {
-    @apply w-full rounded-lg border border-line bg-ink px-3 py-2 text-sm text-slate-200
-    outline-none focus:border-sky-500/70;
+    @apply w-full rounded-lg border border-line bg-ink px-4 py-3 text-base text-slate-200
+    outline-none transition hover:border-slate-500/60 focus:border-sky-500/70 focus:ring-2 focus:ring-sky-500/40;
+  }
+  .field-error {
+    @apply border-bad/70 focus:border-bad focus:ring-bad/30;
+  }
+  select.field {
+    color-scheme: dark;
   }
   .badge {
-    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[13px] font-semibold;
   }
   .th {
-    @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400;
+    @apply whitespace-nowrap px-4 py-3 text-left text-sm font-semibold normal-case text-slate-400;
   }
   .td {
-    @apply border-t border-line px-3 py-2 align-top text-sm;
+    @apply border-t border-line px-4 py-3 align-top text-sm;
   }
   .mono {
-    @apply font-mono text-xs;
+    @apply font-mono text-[13px];
   }
   .prose-report {
     @apply text-sm leading-6 text-slate-300;
@@ -61,22 +70,29 @@
   @apply bg-sky-500/15 text-info;
 }
 
-.graph-node {
-  @apply w-[210px] rounded-lg border bg-panel px-3 py-2 text-left shadow;
+:focus-visible {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
 }
-.react-flow__edge-text {
-  font-size: 10px;
+
+.graph-node {
+  @apply w-[210px] rounded-lg border bg-panel px-3 py-2 text-left;
+}
+/* 提高一级特异性：xyflow 的样式在 lazy chunk 里晚于本站样式加载，
+   同特异性会被它盖回去，深色覆盖必须稳赢。 */
+.react-flow .react-flow__edge-text {
+  font-size: 12px;
 }
 
 /* React Flow 自带控件与水印是浅色主题，嵌在深色页面里会留两块白框 */
-.react-flow__controls {
+.react-flow .react-flow__controls {
   border: 1px solid #232a38;
   border-radius: 8px;
   box-shadow: none;
   overflow: hidden;
   background: #151922;
 }
-.react-flow__controls-button {
+.react-flow .react-flow__controls-button {
   width: 22px;
   height: 22px;
   border-bottom: 1px solid #232a38;
@@ -84,10 +100,10 @@
   color: #c8cede;
   fill: #c8cede;
 }
-.react-flow__controls-button:hover {
+.react-flow .react-flow__controls-button:hover {
   background: #1b2230;
 }
-.react-flow__attribution {
+.react-flow .react-flow__attribution {
   background: transparent;
   color: #4b5566;
 }

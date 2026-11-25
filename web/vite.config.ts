@@ -19,5 +19,24 @@ export default defineConfig({
   // preview 不继承 server.proxy；不补这一段，`npm run preview` 一条数据都拉不到，
   // 部署前就没法用和生产同形态的静态构建做冒烟测试。
   preview: { port: 4173, proxy: PROXY },
-  build: { outDir: "dist", sourcemap: false, chunkSizeWarningLimit: 900 },
+  build: {
+    outDir: "dist",
+    sourcemap: false,
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        // 图表与流程图都走 React.lazy：首屏（落地页）只加载 index + react-vendor，
+        // 这两个大块按页面访问时才拉取，避免 700KB+ 的首屏 JS。
+        // d3 同时被 recharts 与 @xyflow 使用，单独成块，避免 charts <-> flow 循环依赖。
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "react-vendor";
+          if (id.includes("node_modules/@xyflow")) return "flow";
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/victory-vendor")) return "charts";
+          if (id.includes("/node_modules/d3-") || id.includes("/node_modules/internmap/")) return "d3";
+          return undefined;
+        },
+      },
+    },
+  },
 });

@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import { AsrByTargetChart, EffectivenessChart, LatencyChart } from "../components/MetricsCharts";
 import { ErrorNote, Loading, Panel, StatCard, pct } from "../components/ui";
 import type { MetricsPayload } from "../types";
 import { ATTACK_LABEL } from "../types";
+
+const AsrByTargetChart = lazy(() =>
+  import("../components/MetricsCharts").then((m) => ({ default: m.AsrByTargetChart })),
+);
+const EffectivenessChart = lazy(() =>
+  import("../components/MetricsCharts").then((m) => ({ default: m.EffectivenessChart })),
+);
+const LatencyChart = lazy(() =>
+  import("../components/MetricsCharts").then((m) => ({ default: m.LatencyChart })),
+);
+const chartFallback = <Loading label="加载图表…" />;
 
 const weighted = (rows: Array<{ asr: number; runs: number }>) =>
   rows.length ? rows.reduce((a, b) => a + b.asr * b.runs, 0) / rows.reduce((a, b) => a + b.runs, 0) : null;
@@ -78,18 +88,32 @@ export default function MetricsPage() {
     },
   ];
 
+  const badgeFor = (ok: boolean | null) => (
+    <span className={`badge ${ok === null ? "v-info" : ok ? "v-good" : "v-warn"}`}>
+      {ok === null ? "无样本" : ok ? "达标" : "未达标"}
+    </span>
+  );
+
+  const asrSummary = Object.entries(metrics.asr_by_target.off)
+    .map(([id, row]) => `${id}：off ${pct(row.asr)}，block ${pct(metrics.asr_by_target.block[id]?.asr ?? 0)}`)
+    .join("；");
+  const effectSummary = Object.entries(metrics.effectiveness_applicable_only)
+    .map(([cls, row]) => `${ATTACK_LABEL[cls] ?? cls} 下降 ${pct(row.delta)}`)
+    .join("；");
+  const latencySummary = `配对 ${metrics.latency_overhead.pairs} 组，Δp50 ${metrics.latency_overhead.p50_delta_ms ?? "—"} ms，Δp95 ${metrics.latency_overhead.p95_delta_ms ?? "—"} ms，最大 Δp95 ${maxP95 ?? "—"} ms。`;
+
   return (
     <div className="space-y-4">
       <Panel
         title={`基准数字 · engine ${metrics.engine_version}`}
         subtitle={`${metrics.counts.runs} 组矩阵（执行 ${metrics.counts.executed} / 负对照 ${metrics.counts.negative_control}）· 复算脚本 engine/analysis.py，LLM 不参与判定`}
         right={
-          <button className="btn px-3 py-1 text-xs" onClick={() => load(true)} disabled={refreshing}>
+          <button className="btn" onClick={() => load(true)} disabled={refreshing} aria-busy={refreshing}>
             {refreshing ? "复算中…" : "从产物重新复算"}
           </button>
         }
       >
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="负对照违规" value={metrics.canonical.negative_control_violations.length} hint={`${metrics.negative_control.cells} 个 N/A 格，期望 0`} tone={metrics.canonical.negative_control_violations.length ? "text-bad" : "text-good"} />
           <StatCard label="误报（全量口径）" value={`${fprAll}/${fprTotal}`} hint={`其中 ${metrics.normal_suite.intended_pressure} 条是 §3 故意逼出的压力任务`} tone="text-warn" />
           <StatCard label="代理延迟开销" value={`Δp95 ${metrics.latency_overhead.p95_delta_ms ?? "—"} ms`} hint={`Δp50 ${metrics.latency_overhead.p50_delta_ms ?? "—"} ms · 配对 ${metrics.latency_overhead.pairs} 组`} tone="text-info" />
@@ -103,52 +127,79 @@ export default function MetricsPage() {
       </Panel>
 
       <Panel title="设计目标 vs 实测（项目书 §四）">
-        <table className="w-full">
-          <thead>
-            <tr>
-              <th className="th">指标</th>
-              <th className="th w-32">设计目标</th>
-              <th className="th w-56">实测</th>
-              <th className="th w-20">达标</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scorecard.map((row) => (
-              <tr key={row.metric}>
-                <td className="td text-slate-200">{row.metric}</td>
-                <td className="td mono text-slate-400">{row.target}</td>
-                <td className="td mono text-slate-300">{row.measured}</td>
-                <td className="td">
-                  <span className={`badge ${row.ok === null ? "v-info" : row.ok ? "v-good" : "v-warn"}`}>
-                    {row.ok === null ? "无样本" : row.ok ? "达标" : "未达标"}
-                  </span>
-                </td>
+        <div className="space-y-3 md:hidden">
+          {scorecard.map((row) => (
+            <div key={row.metric} className="rounded-lg border border-line bg-ink/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <span className="text-base font-semibold text-slate-100">{row.metric}</span>
+                {badgeFor(row.ok)}
+              </div>
+              <dl className="mt-3 space-y-1 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-400">设计目标</dt>
+                  <dd className="mono text-slate-300">{row.target}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-400">实测</dt>
+                  <dd className="mono text-right text-slate-200">{row.measured}</dd>
+                </div>
+              </dl>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[720px]">
+            <thead>
+              <tr>
+                <th className="th">指标</th>
+                <th className="th w-32">设计目标</th>
+                <th className="th w-56">实测</th>
+                <th className="th w-24">达标</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="mt-3 text-xs leading-5 text-slate-500">
+            </thead>
+            <tbody>
+              {scorecard.map((row) => (
+                <tr key={row.metric}>
+                  <td className="td text-slate-200">{row.metric}</td>
+                  <td className="mono td text-slate-400">{row.target}</td>
+                  <td className="mono td text-slate-300">{row.measured}</td>
+                  <td className="td px-2">{badgeFor(row.ok)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-slate-400">
           未达标不等于失败：T5 的 ASR 高于规格期望区间，是提示词加固只挡住了"管理员口吻"这一类变体，
           差异与解释写在 <span className="mono">bench/metrics/notes.md</span>（B 出数字，A 出分析）。
         </p>
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         <Panel title="ASR：防御 off vs block">
-          <AsrByTargetChart metrics={metrics} />
+          <p className="sr-only">按靶标的攻击成功率对比：{asrSummary}。</p>
+          <Suspense fallback={chartFallback}>
+            <AsrByTargetChart metrics={metrics} height={240} />
+          </Suspense>
         </Panel>
         <Panel title="防御有效性（仅适用格）">
-          <EffectivenessChart metrics={metrics} />
+          <p className="sr-only">各攻击类防御有效性：{effectSummary}。</p>
+          <Suspense fallback={chartFallback}>
+            <EffectivenessChart metrics={metrics} height={240} />
+          </Suspense>
         </Panel>
       </div>
 
       <Panel title="代理延迟开销（配对比较）" subtitle="同一格 off/on 各测 p50/p95，取差值；延迟刻意不进 report.json，避免污染 replay_hash">
-        <LatencyChart metrics={metrics} />
+        <p className="sr-only">{latencySummary}</p>
+        <Suspense fallback={chartFallback}>
+          <LatencyChart metrics={metrics} height={280} />
+        </Suspense>
       </Panel>
 
       <Panel title="格级 ASR 明细" subtitle="自适应 = max_rounds 内任一轮成功；首轮 = 单发即成">
         <div className="max-h-[420px] overflow-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[720px]">
             <thead className="sticky top-0 bg-panel">
               <tr>
                 <th className="th w-16">靶标</th>
@@ -163,13 +214,13 @@ export default function MetricsPage() {
             <tbody>
               {metrics.asr_view.map((r) => (
                 <tr key={`${r.target}-${r.attack_class}-${r.defense}`}>
-                  <td className="td mono">{r.target}</td>
-                  <td className="td text-xs text-slate-300">{ATTACK_LABEL[r.attack_class] ?? r.attack_class}</td>
-                  <td className="td mono text-slate-400">{r.defense === "on" ? "block" : r.defense}</td>
-                  <td className="td mono">{r.runs}</td>
-                  <td className="td mono">{r.success}</td>
-                  <td className={`td mono ${r.defense === "off" ? "text-bad" : "text-good"}`}>{pct(r.asr)}</td>
-                  <td className="td mono text-slate-400">{pct(r.asr_first_round)}</td>
+                  <td className="mono td">{r.target}</td>
+                  <td className="td text-slate-300">{ATTACK_LABEL[r.attack_class] ?? r.attack_class}</td>
+                  <td className="mono td text-slate-400">{r.defense === "on" ? "block" : r.defense}</td>
+                  <td className="mono td">{r.runs}</td>
+                  <td className="mono td">{r.success}</td>
+                  <td className={`mono td ${r.defense === "off" ? "text-bad" : "text-good"}`}>{pct(r.asr)}</td>
+                  <td className="mono td text-slate-400">{pct(r.asr_first_round)}</td>
                 </tr>
               ))}
             </tbody>
@@ -179,7 +230,7 @@ export default function MetricsPage() {
 
       <Panel title="误报分拆（50 条正常任务）" subtitle="设计性压力任务按基准规格 §3 故意逼出，剔除后才是真误报">
         <div className="max-h-[320px] overflow-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[720px]">
             <thead className="sticky top-0 bg-panel">
               <tr>
                 <th className="th">任务</th>
@@ -192,11 +243,11 @@ export default function MetricsPage() {
             <tbody>
               {metrics.normal_suite.rows.map((r, i) => (
                 <tr key={i}>
-                  <td className="td text-xs text-slate-300">{String(r.text)}</td>
-                  <td className="td mono text-slate-400">{String(r.target)}</td>
-                  <td className="td mono">{String(r.blocked)}</td>
-                  <td className="td mono text-slate-400">{String(r.intended_flag)}</td>
-                  <td className="td text-xs text-slate-500">{String(r.note ?? "")}</td>
+                  <td className="td text-slate-300">{String(r.text)}</td>
+                  <td className="mono td text-slate-400">{String(r.target)}</td>
+                  <td className="mono td">{String(r.blocked)}</td>
+                  <td className="mono td text-slate-400">{String(r.intended_flag)}</td>
+                  <td className="td text-slate-400">{String(r.note ?? "")}</td>
                 </tr>
               ))}
             </tbody>
@@ -206,7 +257,7 @@ export default function MetricsPage() {
 
       <Panel title="ground truth 偏离（基准规格 §2）" subtitle="偏离超过 20pp 才单列，由 A 给解释">
         {metrics.deviations.length ? (
-          <pre className="mono max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-ink p-3 text-xs text-warn">
+          <pre className="mono max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-ink p-3 text-warn">
             {JSON.stringify(metrics.deviations, null, 1)}
           </pre>
         ) : (

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type RunFilter } from "../api";
 import RunDetailPanel from "../components/RunDetailPanel";
-import { ErrorNote, Loading, Panel, StatusBadge, VerdictBadge } from "../components/ui";
-import { navigate, useRoute } from "../router";
+import { Loading, Notice, Panel, StatusBadge, VerdictBadge } from "../components/ui";
+import { href, navigate, useRoute } from "../router";
 import type { RunDetail, RunRow, TargetsResponse, Tier } from "../types";
 import { ATTACK_LABEL } from "../types";
 
@@ -16,6 +16,31 @@ interface FormState {
   paraphrase: boolean;
   semantic: boolean;
   note: string;
+}
+
+const runMeta = (r: RunRow) =>
+  `${r.target} · ${ATTACK_LABEL[r.attack_class] ?? r.attack_class} · ${r.defense} · seed ${r.seed}${
+    r.note ? ` · ${r.note}` : ""
+  }`;
+
+function RunRowCard({ run, selected }: { run: RunRow; selected: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={() => navigate("/dashboard", { run: run.run_id })}
+      className={`panel w-full text-left transition hover:border-sky-500/50 ${selected ? "border-sky-500/60" : ""}`}
+    >
+      <div className="mono truncate text-slate-100" title={run.run_id}>
+        {run.run_id}
+      </div>
+      <div className="mono mt-1 text-[13px] text-slate-400">{runMeta(run)}</div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <VerdictBadge type={run.verdict} />
+        <StatusBadge status={run.status} />
+        <span className="mono text-slate-400">轮次 {run.rounds_used ?? "—"}</span>
+      </div>
+    </button>
+  );
 }
 
 export default function Dashboard() {
@@ -118,14 +143,14 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
-      {error && <ErrorNote message={error} />}
+      {error && <Notice tone="bad" title="接口调用失败" message={<span className="mono break-all">{error}</span>} />}
 
       <Panel
         title="发起运行"
         subtitle="写接口是算力开关：一次运行 = 一次真实攻击投放，跑完自动进历史"
         right={
-          <div className="flex items-center gap-3">
-            <label className="mono flex items-center gap-2 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="mono flex items-center gap-2 text-sm text-slate-400">
               <input
                 type="checkbox"
                 className="accent-sky-500"
@@ -134,20 +159,20 @@ export default function Dashboard() {
               />
               允许批量跑格
             </label>
-            <button className="btn px-3 py-1 text-xs" onClick={startMatrix} disabled={!confirmMatrix}>
+            <button className="btn" onClick={startMatrix} disabled={!confirmMatrix}>
               跑这一格的全矩阵
             </button>
-            <button className="btn btn-primary px-3 py-1 text-xs" onClick={startRun}>
+            <button className="btn btn-primary" onClick={startRun}>
               运行单格
             </button>
           </div>
         }
       >
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <label className="text-xs text-slate-400">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <label className="text-sm text-slate-400">
             靶标
             <select
-              className="field mt-1"
+              className="field mt-2"
               value={form.target}
               onChange={(e) => {
                 const target = e.target.value;
@@ -162,10 +187,10 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-sm text-slate-400">
             攻击类
             <select
-              className="field mt-1"
+              className="field mt-2"
               value={form.attack_class}
               onChange={(e) => setForm({ ...form, attack_class: e.target.value })}
             >
@@ -176,9 +201,9 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-sm text-slate-400">
             种子
-            <select className="field mt-1" value={form.seed} onChange={(e) => setForm({ ...form, seed: Number(e.target.value) })}>
+            <select className="field mt-2" value={form.seed} onChange={(e) => setForm({ ...form, seed: Number(e.target.value) })}>
               {(registry?.seeds ?? [42, 43, 44]).map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -186,24 +211,24 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-sm text-slate-400">
             防御档
-            <select className="field mt-1" value={form.defense} onChange={(e) => setForm({ ...form, defense: e.target.value })}>
+            <select className="field mt-2" value={form.defense} onChange={(e) => setForm({ ...form, defense: e.target.value })}>
               <option value="off">off（直连后端）</option>
               <option value="block">block（代理拦截）</option>
               <option value="alert">alert（只告警放行）</option>
             </select>
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-sm text-slate-400">
             备注
             <input
-              className="field mt-1"
+              className="field mt-2"
               value={form.note}
               placeholder="写进历史，方便回来看"
               onChange={(e) => setForm({ ...form, note: e.target.value })}
             />
           </label>
-          <div className="flex flex-col justify-end gap-1 text-xs text-slate-400">
+          <div className="flex flex-col justify-end gap-2 text-sm text-slate-400">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -224,7 +249,11 @@ export default function Dashboard() {
             </label>
           </div>
         </div>
-        {message && <p className="mono mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-info">{message}</p>}
+        {message && (
+          <p className="mono mt-3 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-info" role="status">
+            {message}
+          </p>
+        )}
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
@@ -232,9 +261,9 @@ export default function Dashboard() {
           title={`运行历史${page ? ` · ${page.total} 组` : ""}`}
           subtitle="矩阵正式产物、平台临时运行、批量跑格都在这一张表里"
           right={
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <select
-                className="field w-auto py-1 text-xs"
+                className="field w-auto min-h-10 py-2 text-sm"
                 value={filter.target ?? ""}
                 onChange={(e) => {
                   setOffset(0);
@@ -249,7 +278,7 @@ export default function Dashboard() {
                 ))}
               </select>
               <select
-                className="field w-auto py-1 text-xs"
+                className="field w-auto min-h-10 py-2 text-sm"
                 value={filter.defense ?? ""}
                 onChange={(e) => {
                   setOffset(0);
@@ -267,15 +296,21 @@ export default function Dashboard() {
             <Loading label="读取历史索引…" />
           ) : (
             <>
-              <div className="max-h-[560px] overflow-auto">
+              <div className="space-y-3 md:hidden">
+                {page.items.map((r) => (
+                  <RunRowCard key={r.run_id} run={r} selected={selected === r.run_id} />
+                ))}
+                {!page.items.length && <p className="text-sm text-slate-400">没有匹配的运行。</p>}
+              </div>
+              <div className="hidden max-h-[560px] overflow-auto md:block">
                 {/* table-fixed：自动布局下 40 字符的 run_id 把表格撑得比卡片还宽，
                     状态/轮次两列被挤出可视区；定宽后 truncate 才真的生效。 */}
                 <table className="w-full table-fixed">
                   <thead className="sticky top-0 bg-panel">
                     <tr>
                       <th className="th">运行</th>
-                      <th className="th w-24">判定</th>
-                      <th className="th w-20">状态</th>
+                      <th className="th w-28">判定</th>
+                      <th className="th w-24">状态</th>
                       <th className="th w-16">轮次</th>
                     </tr>
                   </thead>
@@ -289,13 +324,14 @@ export default function Dashboard() {
                         }`}
                       >
                         <td className="td">
-                          <div className="mono truncate text-slate-200" title={r.run_id}>
+                          <a
+                            href={href("/dashboard", { run: r.run_id })}
+                            className="mono block truncate text-slate-200 hover:text-sky-200"
+                            title={r.run_id}
+                          >
                             {r.run_id}
-                          </div>
-                          <div className="mono truncate text-[11px] text-slate-500">
-                            {r.target} · {ATTACK_LABEL[r.attack_class] ?? r.attack_class} · {r.defense} · seed {r.seed}
-                            {r.note ? ` · ${r.note}` : ""}
-                          </div>
+                          </a>
+                          <div className="mono truncate text-[13px] text-slate-400">{runMeta(r)}</div>
                         </td>
                         <td className="td">
                           <VerdictBadge type={r.verdict} />
@@ -316,14 +352,22 @@ export default function Dashboard() {
                   </tbody>
                 </table>
               </div>
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                <button className="btn px-3 py-1 text-xs" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+              <div className="mt-3 grid grid-cols-2 items-center gap-3 text-sm text-slate-400 md:flex md:justify-between">
+                <button
+                  className="btn min-h-10 w-full justify-center md:w-auto"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                >
                   上一页
                 </button>
-                <span className="mono">
+                <span className="mono text-center">
                   {offset + 1}–{Math.min(offset + PAGE, page.total)} / {page.total}
                 </span>
-                <button className="btn px-3 py-1 text-xs" disabled={offset + PAGE >= page.total} onClick={() => setOffset(offset + PAGE)}>
+                <button
+                  className="btn min-h-10 w-full justify-center md:w-auto"
+                  disabled={offset + PAGE >= page.total}
+                  onClick={() => setOffset(offset + PAGE)}
+                >
                   下一页
                 </button>
               </div>
@@ -331,7 +375,19 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        {selected ? detail ? <RunDetailPanel detail={detail} /> : selectedStatus === "failed" ? null : <Loading label={selectedPending ? "后台评测中，完成后自动显示报告…" : `读取 ${selected} 的产物…`} /> : (
+        {selected ? (
+          detail ? (
+            <RunDetailPanel detail={detail} />
+          ) : selectedStatus === "failed" ? (
+            <Notice
+              tone="bad"
+              title="评测执行失败"
+              message={<span className="mono break-all">{selectedError || "评测执行失败，请查看运行日志。"}</span>}
+            />
+          ) : (
+            <Loading label={selectedPending ? "后台评测中，完成后自动显示报告…" : `读取 ${selected} 的产物…`} />
+          )
+        ) : (
           <Panel title="详情" subtitle="点左侧任意一行，或从一键 demo 进入">
             <p className="text-sm text-slate-400">
               这里会展开判定证据、污点传播图、攻击轨迹、sink 捕获与修复建议——全部来自该组运行的原始产物文件。

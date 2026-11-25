@@ -49,6 +49,9 @@ class TargetSpecEntry:
     hardened: bool = False
     applicable: tuple[str, ...] = ATTACK_CLASSES
     description: str = ""
+    # 运行时注册的自定义 MCP server：命令 + 参数，其中 {workdir} 会替换成本组运行目录。
+    # 为 None 时走内置 range.backend --profile <profile>（既有靶标行为不变）。
+    backend_command: tuple[str, ...] | None = None
 
     def is_applicable(self, attack_class: str) -> bool:
         return attack_class in self.applicable
@@ -130,12 +133,29 @@ TARGETS: dict[str, TargetSpecEntry] = {
     t.id: t for t in (_T1, _T2, _T3, _T4, _T5)
 }
 
+# 平台「接入自己的 MCP」上传的配置在这里注册。仅存在于当前进程，不入库、
+# 不写进仓库；每次平台重启都需要重新上传（配置本身可保存在用户本地）。
+CUSTOM_TARGETS: dict[str, TargetSpecEntry] = {}
+
+
+def register_custom(entry: TargetSpecEntry) -> TargetSpecEntry:
+    """注册一个运行时靶标，供 bench.runner / victim_params 按 id 取回。"""
+    key = entry.id.upper()
+    if key in TARGETS:
+        raise ValueError(f"target id {entry.id!r} conflicts with a built-in target")
+    CUSTOM_TARGETS[key] = entry
+    return entry
+
 
 def target(target_id: str) -> TargetSpecEntry:
-    try:
-        return TARGETS[target_id.upper()]
-    except KeyError:
-        raise ValueError(f"unknown target {target_id!r}; known: {sorted(TARGETS)}") from None
+    key = target_id.upper()
+    if key in TARGETS:
+        return TARGETS[key]
+    if key in CUSTOM_TARGETS:
+        return CUSTOM_TARGETS[key]
+    raise ValueError(
+        f"unknown target {target_id!r}; known: {sorted(TARGETS)}, custom: {sorted(CUSTOM_TARGETS)}"
+    ) from None
 
 
 def matrix_cells() -> list[tuple[TargetSpecEntry, str]]:

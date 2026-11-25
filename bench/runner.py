@@ -118,7 +118,7 @@ async def execute(
     )
     evidence = FileEvidence(workdir)
 
-    async with RangeVictim(params, entry.id, paraphrase=paraphrase) as victim:
+    async with RangeVictim(params, entry, paraphrase=paraphrase) as victim:
         engine = AttackEngine(
             config=config,
             engine_version=ENGINE_VERSION,
@@ -381,7 +381,7 @@ async def execute_normal(
         options=ProxyOptions(policy=policy, downgrade_on_untrusted=downgrade, seed=NORMAL_SEED),
     )
     evidence = FileEvidence(workdir)
-    async with RangeVictim(params, entry.id) as victim:
+    async with RangeVictim(params, entry) as victim:
         started = time.perf_counter()
         response = await victim.act(task.text)
         wall_ms = round((time.perf_counter() - started) * 1000, 3)

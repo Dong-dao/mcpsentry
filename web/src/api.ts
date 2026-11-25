@@ -1,4 +1,5 @@
 import type {
+  CustomConfig,
   DemoBundle,
   Health,
   MetricsPayload,
@@ -65,6 +66,8 @@ const staticApi = {
     return detail;
   },
   demoPreset: () => staticGet<DemoBundle>("demo.json"),
+  customExample: () => Promise.reject(new Error(STATIC_HINT)),
+  startCustom: () => Promise.reject(new Error(STATIC_HINT)),
   startRun: () => Promise.reject(new Error(STATIC_HINT)),
   startDemo: () => Promise.reject(new Error(STATIC_HINT)),
   startMatrix: () => Promise.reject(new Error(STATIC_HINT)),
@@ -94,6 +97,9 @@ const liveApi = {
   },
   run: (runId: string) => get<RunDetail>(`/runs/${encodeURIComponent(runId)}`),
   demoPreset: () => get<DemoBundle>("/demo/preset"),
+  customExample: () => get<CustomConfig>("/custom/example"),
+  startCustom: (body: CustomConfig) =>
+    post<{ run_id: string; status: string; target: string; name: string }>("/custom/runs", body),
   startRun: (body: RunRequest) => post<{ run_id: string; status: string }>("/runs", body),
   startDemo: (body: RunRequest) =>
     post<{ status: string; runs: Array<{ run_id: string; defense: string }> }>("/demo", body),

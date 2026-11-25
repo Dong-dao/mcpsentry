@@ -12,6 +12,8 @@
     POST /api/runs                发起一组运行（后台执行，立刻回 run_id）
     POST /api/demo                一键 demo：同格 off/block 成对运行
     POST /api/matrix              批量跑格（默认只跑筛选出的子集，需显式 confirm）
+    GET  /api/custom/example      自定义 MCP 接入的配置样例
+    POST /api/custom/runs         上传配置跑自己的 MCP 工具链（需服务端显式开启）
 
 写接口是算力开关，默认只允许同源访问（CORS 由 MCPSENTRY_ORIGINS 显式打开），
 公网部署必须放在 Caddy 之后并按 deploy/README 收紧。
@@ -35,6 +37,7 @@ from bench.matrix import describe, matrix
 from range.specs import ATTACK_CLASSES, SEEDS, TARGETS
 from range.specs import target as range_target
 
+from . import custom as custom_api
 from . import export, history, reports
 from .orchestr import PLATFORM_SUBDIR, RESULTS_ROOT, Orchestrator, RunRequest
 
@@ -196,6 +199,45 @@ def _state_hooks(run_id: str):
             history.mark_status(conn, run_id, status, error=(meta or {}).get("error"))
 
     return on_state
+
+
+@app.get("/api/custom/example")
+def custom_example() -> dict[str, Any]:
+    """给前端「填入样例」按钮用；开关未打开时同样拒绝，避免误导。"""
+    try:
+        custom_api.ensure_enabled()
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from None
+    return custom_api.example_body()
+
+
+@app.post("/api/custom/runs", status_code=202)
+async def start_custom_run(
+    body: custom_api.CustomRunBody, background: BackgroundTasks
+) -> dict[str, Any]:
+    """上传自己的 MCP server 配置，按内置靶标同样的链路跑一组攻击。
+
+    注意：命令在平台主机执行，服务端未设 MCPSENTRY_ALLOW_CUSTOM=1 时直接 403。
+    """
+    try:
+        custom_api.ensure_enabled()
+        entry = custom_api.build_entry(body)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+    req = RunRequest(**custom_api.request_payload(entry, body))
+    run_id = custom_api.run_id(entry, body)
+    history.mark_queued(app.state.db, asdict(req), run_id)
+    background.add_task(app.state.orchestrator.perform, run_id, req, _state_hooks(run_id))
+    return {
+        "run_id": run_id,
+        "status": "queued",
+        "target": entry.id,
+        "name": entry.name,
+        "config": asdict(req),
+    }
 
 
 @app.post("/api/runs", status_code=202)

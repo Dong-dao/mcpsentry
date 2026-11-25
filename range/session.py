@@ -32,7 +32,18 @@ def _child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def backend_cmd(profile: str, workdir: Path) -> list[str]:
+def backend_cmd(
+    profile: str, workdir: Path, command: tuple[str, ...] | list[str] | None = None
+) -> list[str]:
+    """返回被代理 spawn 的 MCP server 命令。
+
+    自定义接入传 `command`，其中每个参数里的 `{workdir}` 会替换成本组工作目录；
+    未传时保持内置靶标的 `python -m range.backend --profile ...` 行为。
+    """
+    if command:
+        if not command[0]:
+            raise ValueError("backend command must start with a non-empty executable")
+        return [part.replace("{workdir}", str(Path(workdir))) for part in command]
     return [
         sys.executable,
         "-m",
@@ -74,8 +85,9 @@ def victim_params(
     """构造受害者侧的 MCP 连接参数（代理与否对受害者透明）。"""
     opts = options or ProxyOptions()
     workdir = Path(workdir)
+    custom_cmd = getattr(entry, "backend_command", None)
     if not defense:
-        cmd = backend_cmd(entry.profile, workdir)
+        cmd = backend_cmd(entry.profile, workdir, custom_cmd)
         return StdioServerParameters(
             command=cmd[0], args=cmd[1:], env=_child_env(), cwd=str(REPO_ROOT)
         )
@@ -89,7 +101,7 @@ def victim_params(
         "-m",
         "engine.proxy",
         "--backend",
-        json.dumps(backend_cmd(entry.profile, workdir)),
+        json.dumps(backend_cmd(entry.profile, workdir, custom_cmd)),
         "--log",
         str(workdir / ws.FLOW_FILE),
         "--taint-log",

@@ -1,3 +1,4 @@
+import "@xyflow/react/dist/style.css";
 import {
   Background,
   BackgroundVariant,
@@ -14,7 +15,7 @@ import { EDGE_LABEL } from "../types";
 
 // 列 = 角色（攻击者 / Agent / 污点源 / sink），行 = 轮次；列间距与节点宽度见 sizeFor()。
 const Y_GAP = 84;
-const NODE_H = 56;
+const NODE_H = 64;
 const MIN_X_GAP = 30; // 边标签最短两字，留出这点空隙才不会压到节点上
 
 /**
@@ -46,12 +47,13 @@ const SHORT_STATE: Record<EdgeState, string> = {
   captured: "送达",
 };
 
+// 节点底色改用语义色的低透明写法：bad=攻击面、warn=污点源、sky=Agent、slate=普通调用。
 const NODE_STYLE: Record<string, { border: string; tint: string }> = {
-  attacker: { border: "#7a2733", tint: "#2a1116" },
-  agent: { border: "#2b4a86", tint: "#131c2b" },
-  call: { border: "#2c3444", tint: "#161b25" },
-  source: { border: "#7a5a1f", tint: "#241d10" },
-  sink: { border: "#7a2733", tint: "#2a1116" },
+  attacker: { border: "rgba(255,143,163,0.5)", tint: "rgba(255,143,163,0.12)" },
+  agent: { border: "rgba(56,189,248,0.5)", tint: "rgba(14,165,233,0.12)" },
+  call: { border: "rgba(148,163,184,0.35)", tint: "rgba(148,163,184,0.10)" },
+  source: { border: "rgba(255,208,138,0.5)", tint: "rgba(255,208,138,0.14)" },
+  sink: { border: "rgba(255,143,163,0.5)", tint: "rgba(255,143,163,0.12)" },
 };
 
 function truncated(text: string, n: number) {
@@ -80,22 +82,35 @@ export default function TaintGraphView({ graph, height = 460 }: { graph: TaintGr
 
   if (!nodes.length) return <div className="panel text-sm text-slate-400">这组运行没有可画的节点。</div>;
 
+  const summary = graph.nodes
+    .map((n) => `${n.label}（${n.kind}${n.round != null ? `，第 ${n.round} 轮` : ""}）`)
+    .join("；");
+
   return (
-    <div ref={box} className="overflow-hidden rounded-xl border border-line" style={{ height: canvasHeight }}>
-      {width > 0 && (
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          fitView
-          fitViewOptions={{ padding: 0.04, maxZoom: 1 }}
-          minZoom={0.2}
-          nodesConnectable={false}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#202634" />
-          <Controls showInteractive={false} position="bottom-right" />
-        </ReactFlow>
-      )}
-    </div>
+    <>
+      <div
+        ref={box}
+        role="img"
+        aria-label="污点传播图：绿边=代理拦下，红线=载荷送达"
+        className="overflow-hidden rounded-xl border border-line"
+        style={{ height: canvasHeight }}
+      >
+        {width > 0 && (
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            fitView
+            fitViewOptions={{ padding: 0.04, minZoom: 0.86, maxZoom: 1 }}
+            minZoom={0.2}
+            nodesConnectable={false}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#202634" />
+            <Controls showInteractive={false} position="bottom-right" />
+          </ReactFlow>
+        )}
+      </div>
+      <p className="sr-only">污点传播图节点：{summary}。</p>
+    </>
   );
 }
 
@@ -140,6 +155,7 @@ function layout(graph: TaintGraph, wantedHeight: number, width: number) {
         border: `1px solid ${style.border}`,
         background: style.tint,
         borderRadius: 10,
+        boxShadow: "none",
         width: nodeW,
         height: NODE_H,
         padding: "5px 7px",
@@ -147,12 +163,19 @@ function layout(graph: TaintGraph, wantedHeight: number, width: number) {
       data: {
         label: (
           <div className="text-left leading-tight" title={n.label}>
-            <div className="mono text-[8px] uppercase tracking-wider text-slate-500">
+            <span className="sr-only">{`${n.label}，${n.kind}${n.round != null ? `，第 ${n.round} 轮` : ""}`}</span>
+            <div className="mono text-[8px] uppercase tracking-wider text-slate-500" aria-hidden="true">
               {n.kind}
               {n.round != null ? ` · r${n.round}` : ""}
             </div>
-            <div className="truncate text-[12px] font-semibold text-slate-100">{tool}</div>
-            {args && <div className="mono truncate text-[9px] text-slate-400">{truncated(args, 16)}</div>}
+            <div className="truncate text-[14px] font-semibold text-slate-100" aria-hidden="true">
+              {tool}
+            </div>
+            {args && (
+              <div className="mono truncate text-[9px] text-slate-400" aria-hidden="true">
+                {truncated(args, 16)}
+              </div>
+            )}
           </div>
         ),
       },
@@ -178,7 +201,7 @@ function layout(graph: TaintGraph, wantedHeight: number, width: number) {
         strokeWidth: e.state === "blocked" ? 1.8 : 1.2,
         strokeDasharray: style.dashed ? "5 4" : undefined,
       },
-      labelStyle: { fill: "#c8cede", fontSize: 9 },
+      labelStyle: { fill: "#c8cede", fontSize: 12 },
       labelBgStyle: { fill: "#151922", fillOpacity: 0.95 },
       labelBgPadding: [3, 2],
       labelBgBorderRadius: 4,

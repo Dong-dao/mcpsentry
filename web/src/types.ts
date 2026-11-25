@@ -12,6 +12,22 @@ export type EdgeState = "payload" | "call" | "blocked" | "tainted" | "captured";
 export type NodeKind = "attacker" | "agent" | "call" | "source" | "sink";
 export type Tier = "off" | "block" | "alert";
 
+/** 自定义 MCP 接入配置：与 platform_api/custom.py 的 CustomRunBody 一一对应。 */
+export interface CustomConfig {
+  name: string;
+  command: string[];
+  tool_classes: Record<string, "source" | "sink" | "neutral">;
+  sinks: string[];
+  carrier_tool?: string;
+  attack_class?: string;
+  seed?: number;
+  defense?: Tier;
+  hardened?: boolean;
+  description?: string;
+  note?: string;
+  confirm?: boolean;
+}
+
 export const VERDICT_LABEL: Record<VerdictType, string> = {
   exfiltration: "数据外渗成功",
   forbidden_call: "越权调用成功",

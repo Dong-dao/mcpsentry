@@ -55,12 +55,16 @@ class RangeVictim:
     def __init__(
         self,
         params: StdioServerParameters,
-        target_id: str = "T1",
+        target_id: str | TargetSpecEntry = "T1",
         *,
         paraphrase: bool = False,
     ):
         self.params = params
-        self.entry: TargetSpecEntry = target(target_id)
+        # 内置靶标按 id 查表；平台运行时注册的自定义靶标直接传 entry 对象，避免
+        # 受害者层重新查全局注册表时拿到别的进程里的副本。
+        self.entry: TargetSpecEntry = (
+            target_id if isinstance(target_id, TargetSpecEntry) else target(target_id)
+        )
         self.paraphrase = paraphrase
         self._stack: contextlib.AsyncExitStack | None = None
         self.session: ClientSession | None = None

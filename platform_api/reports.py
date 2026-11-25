@@ -15,7 +15,7 @@ from . import export
 JSONL_FILES = ("trajectory.jsonl", "flow.jsonl", "sink_capture.jsonl")
 JSON_FILES = ("config.json", "report.json", "meta.json", "latency.json")
 # 查找顺序即优先级：矩阵正式产物 > 平台临时运行 > 正常任务 > 重放
-SUBDIRS = ("runs", "platform", "normal", "replays")
+SUBDIRS = ("runs", "platform", "custom", "normal", "replays")
 
 
 def _read_json(path: Path) -> dict[str, Any]:

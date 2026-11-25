@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { AsrByTargetChart, EffectivenessChart } from "../components/MetricsCharts";
 import { ErrorNote, Loading, Panel, StatCard, pct } from "../components/ui";
 import { href } from "../router";
 import type { Health, MetricsPayload, TargetsResponse } from "../types";
@@ -55,6 +54,22 @@ const TIERS = [
   },
 ] as const;
 
+/** 纯 CSS 条形：落地页不引 recharts，首屏 JS 少一个图表库。 */
+function Bar({ label, value, tone }: { label: string; value: number; tone: "bad" | "good" | "warn" }) {
+  const fill = tone === "bad" ? "bg-bad" : tone === "good" ? "bg-good" : "bg-warn";
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+        <span className="text-slate-300">{label}</span>
+        <span className="mono text-slate-200">{pct(value)}</span>
+      </div>
+      <div className="mt-2 h-3 w-full rounded-full bg-ink" aria-hidden="true">
+        <div className={`h-3 rounded-full ${fill}`} style={{ width: pct(value) }} />
+      </div>
+    </div>
+  );
+}
+
 export default function Landing() {
   const [data, setData] = useState<{ metrics: MetricsPayload; targets: TargetsResponse; health: Health } | null>(null);
   const [error, setError] = useState("");
@@ -70,15 +85,17 @@ export default function Landing() {
   const on = m ? Object.values(m.asr_by_target.block) : [];
   const asrOff = off.length ? off.reduce((a, b) => a + b.asr * b.runs, 0) / off.reduce((a, b) => a + b.runs, 0) : null;
   const asrOn = on.length ? on.reduce((a, b) => a + b.asr * b.runs, 0) / on.reduce((a, b) => a + b.runs, 0) : null;
+  const offPct = asrOff ?? 0.91;
+  const onPct = asrOn ?? 0;
 
   return (
     <div className="space-y-10">
       <header className="pt-6">
         <div className="badge v-info">AI 安全 · MCP 工具链</div>
-        <h1 className="mt-4 max-w-3xl text-3xl font-semibold leading-snug text-slate-50 sm:text-4xl">
+        <h1 className="mt-4 max-w-3xl text-[30px] font-semibold leading-snug text-slate-50 sm:text-[36px]">
           给你的 Agent 做一次<span className="text-sky-300">能复现</span>的红队评测
         </h1>
-        <p className="mt-4 max-w-2xl text-slate-400">
+        <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
           MCPSentry 在 MCP 工具边界做污点跟踪：外部内容打上标记，进 sink 之前查一次。
           攻击引擎负责把它骗过去，判定用金丝雀令牌——不靠模型自己当裁判。
         </p>
@@ -134,53 +151,60 @@ export default function Landing() {
         <ol className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {STEPS.map(([title, body], i) => (
             <li key={title} className="rounded-lg border border-line bg-ink/60 p-4">
-              <div className="mono text-xs text-sky-300">0{i + 1}</div>
-              <div className="mt-1 font-semibold text-slate-100">{title}</div>
-              <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
+              <div className="mono text-sky-300">0{i + 1}</div>
+              <div className="mt-1 text-base font-semibold text-slate-100">{title}</div>
+              <p className="mt-2 text-base leading-7 text-slate-400">{body}</p>
             </li>
           ))}
         </ol>
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         <Panel title="创新点" subtitle="机制设计，不是提示词加固">
-          <ul className="space-y-3">
+          <ul className="space-y-3 text-base leading-7">
             {INNOVATIONS.map(([k, v]) => (
-              <li key={k} className="text-sm leading-6">
+              <li key={k}>
                 <span className="font-semibold text-slate-100">{k}</span>
                 <span className="text-slate-400"> — {v}</span>
               </li>
             ))}
           </ul>
         </Panel>
-        <Panel title="靶标" subtitle={data ? `${data.targets.matrix.applicable} 组适用格 / ${data.targets.matrix.negative_control} 组负对照` : "加载中"}>
+        <Panel
+          title="靶标"
+          subtitle={data ? `${data.targets.matrix.applicable} 组适用格 / ${data.targets.matrix.negative_control} 组负对照` : "加载中"}
+        >
           {data ? (
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="th">靶标</th>
-                  <th className="th">脆弱点</th>
-                  <th className="th">适用攻击类</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.targets.targets.map((t) => (
-                  <tr key={t.id}>
-                    <td className="td">
-                      <div className="font-medium text-slate-100">
-                        {t.id} {t.name}
-                      </div>
-                      <div className="mono text-xs text-slate-500">{t.mcp_servers.join("、")}</div>
-                    </td>
-                    <td className="td text-xs text-slate-400">{t.vulnerability}</td>
-                    <td className="td mono text-xs text-slate-300">
-                      {t.applicable.map((c) => c.split("_")[0]).join(" / ")}
-                      {t.na.length ? <span className="text-slate-600"> · N/A {t.na.map((c) => c.split("_")[0]).join("/")}</span> : null}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px]">
+                <thead>
+                  <tr>
+                    <th className="th">靶标</th>
+                    <th className="th">脆弱点</th>
+                    <th className="th">适用攻击类</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.targets.targets.map((t) => (
+                    <tr key={t.id}>
+                      <td className="td">
+                        <div className="font-medium text-slate-100">
+                          {t.id} {t.name}
+                        </div>
+                        <div className="mono text-slate-500">{t.mcp_servers.join("、")}</div>
+                      </td>
+                      <td className="td text-slate-400">{t.vulnerability}</td>
+                      <td className="td">
+                        <span className="mono text-slate-300">
+                          {t.applicable.map((c) => c.split("_")[0]).join(" / ")}
+                        </span>
+                        {t.na.length ? <span className="mono text-info"> · N/A {t.na.map((c) => c.split("_")[0]).join("/")}</span> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <Loading label="读取靶标注册表…" />
           )}
@@ -188,13 +212,23 @@ export default function Landing() {
       </div>
 
       {m && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
           <Panel title="ASR：防御 off vs block" subtitle="靶标聚合，基准规格 §2 的比对口径">
-            <AsrByTargetChart metrics={m} />
+            <div role="img" aria-label={`外渗 ASR：防御 off ${pct(offPct)}，防御 block ${pct(onPct)}`} className="space-y-5">
+              <Bar label="防御 off（直连后端）" value={offPct} tone="bad" />
+              <Bar label="防御 block（污点代理）" value={onPct} tone="good" />
+            </div>
+            <p className="mt-4 text-sm leading-6 text-slate-400">
+              红线是攻击真的送到了 sink；绿线是代理在进 sink 前拦下。同一批格只多了一个代理。
+            </p>
           </Panel>
           <Panel title="防御有效性" subtitle="ASR_off − ASR_block，只统计适用格（§4 口径）">
-            <EffectivenessChart metrics={m} />
-            <ul className="mono mt-3 space-y-1 text-xs text-slate-400">
+            <div className="space-y-4">
+              {Object.entries(m.effectiveness_applicable_only).map(([cls, row]) => (
+                <Bar key={cls} label={ATTACK_LABEL[cls] ?? cls} value={row.delta} tone={row.delta >= 0.8 ? "good" : "warn"} />
+              ))}
+            </div>
+            <ul className="mono mt-4 space-y-1 text-slate-400">
               {Object.entries(m.effectiveness_applicable_only).map(([cls, row]) => (
                 <li key={cls}>
                   {ATTACK_LABEL[cls] ?? cls}：{pct(row.off.asr)} → {pct(row.on.asr)}
@@ -207,7 +241,7 @@ export default function Landing() {
       )}
 
       <Panel title="定价" subtitle="评估报告即交付物，平台即接单流水线">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {TIERS.map((t) => (
             <div
               key={t.name}
@@ -215,12 +249,12 @@ export default function Landing() {
                 t.accent ? "border-sky-500/60 bg-sky-500/5" : "border-line bg-ink/60"
               }`}
             >
-              <div className="text-sm font-semibold text-slate-100">{t.name}</div>
+              <div className="text-base font-semibold text-slate-100">{t.name}</div>
               <div className="mt-3 flex items-baseline gap-1">
-                <span className="text-2xl font-semibold text-slate-50">{t.price}</span>
-                <span className="text-xs text-slate-400">{t.unit}</span>
+                <span className="text-[30px] font-semibold leading-tight text-slate-50">{t.price}</span>
+                <span className="text-sm text-slate-400">{t.unit}</span>
               </div>
-              <ul className="mt-4 flex-1 space-y-2 text-sm text-slate-400">
+              <ul className="mt-4 flex-1 space-y-2 text-base leading-6 text-slate-400">
                 {t.items.map((i) => (
                   <li key={i} className="flex gap-2">
                     <span className="text-sky-400">·</span>

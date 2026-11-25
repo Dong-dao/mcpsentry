@@ -1,13 +1,17 @@
-"""运行时接入自己的 MCP 工具链。
+"""运行时接入自己的工具面（公网安全版）。
 
-用户上传的是 **stdio MCP server 命令 + 工具分类 + sink 列表**，不是任意远程 Agent：
-受害者仍是我们确定性的 RangeVictim，所以四类攻击里的 A1/A2/A4 能完整跑通，
-判定链、污点证据和 replay_hash 与内置靶标完全同一套。
+用户上传的是 **模板 + 工具清单**：选一个平台内置模板，声明工具分类 / sink /
+载体工具，平台用同一套攻击引擎、污点代理和确定性 oracle 跑一组攻击。
 
-安全边界：
-- 命令在平台所在主机上执行，默认关闭；置 `MCPSENTRY_ALLOW_CUSTOM=1` 才开放。
-- 只允许 python/python3 解释器开头的命令（可带任意脚本参数），且参数长度受限。
-  公网部署请保持关闭，或放到只接受可信内网请求的实例上。
+安全模型（与早期"上传任意命令"版本的根本区别）：
+- **平台只执行自己的代码**。backend 固定为 `python -m range.backend --profile <模板>`
+  ，命令字符串不再由用户上传，杜绝任意命令执行 / 反弹 shell。
+- 模板限定为无描述面的内置 profile（t1/t2/t5）；A3 需要改写 MCP server 描述，
+  不在上传能力内。
+- 用户只能在模板暴露的工具集里改分类与 sink，改不出新的工具面。
+
+因此该能力可以在公网开启：默认仍关闭（MCPSENTRY_ALLOW_CUSTOM=1），
+compose 里显式打开即可，风险等同于内置靶场。
 """
 
 from __future__ import annotations
@@ -25,12 +29,24 @@ from engine.contracts import AttackClass
 from range.specs import NO_DESC_SURFACE, TargetSpecEntry, register_custom
 
 _ALLOWED_ATTACKS = set(NO_DESC_SURFACE)
-_ALLOWED_PY = {"python", "python3", "py", os.path.basename(sys.executable).lower()}
+
+# 每个公网可开放模板 → 该内置 profile 暴露的工具与默认分类。
+# 用户提交的 tool_classes 只能从这些 key 里选，不能再造工具。
+TEMPLATE_TOOLS: dict[str, dict[str, str]] = {
+    "t1": {"read_doc": "source", "send_email": "sink"},
+    "t2": {
+        "web_fetch": "source",
+        "read_doc": "source",
+        "write_file": "sink",
+        "send_email": "sink",
+    },
+    "t5": {"read_doc": "source", "send_email": "sink"},
+}
 
 
 class CustomRunBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    command: list[str] = Field(min_length=1, max_length=20)
+    template: str = Field(default="t1", description="平台内置模板 id：t1 / t2 / t5")
     tool_classes: dict[str, Literal["source", "sink", "neutral"]]
     sinks: list[str] = Field(min_length=1)
     carrier_tool: str = "read_doc"
@@ -44,36 +60,38 @@ class CustomRunBody(BaseModel):
 
 
 def ensure_enabled() -> None:
-    """默认拒绝：上传配置 = 在主机上跑用户给的命令，必须显式打开。"""
+    """默认拒绝：公网实例由 compose 显式打开开关后才可用。"""
     if os.environ.get("MCPSENTRY_ALLOW_CUSTOM", "0") != "1":
         raise PermissionError(
-            "自定义 MCP 接入未启用。在服务端设置 MCPSENTRY_ALLOW_CUSTOM=1 后重启平台；"
-            "该开关会在本机执行上传的命令，公网实例请谨慎开启。"
+            "自定义工具面接入未启用。在服务端设置 MCPSENTRY_ALLOW_CUSTOM=1 后重启平台。"
         )
 
 
 def validate(body: CustomRunBody) -> None:
     if not body.confirm:
-        raise ValueError("自定义运行需要 confirm=true（确认命令将在平台主机执行）")
+        raise ValueError("自定义运行需要 confirm=true（确认使用平台内置工具面）")
+    if body.template not in TEMPLATE_TOOLS:
+        raise ValueError(
+            f"template 必须是 {sorted(TEMPLATE_TOOLS)} 之一（收到 {body.template!r}）"
+        )
     if body.attack_class not in _ALLOWED_ATTACKS:
         raise ValueError(
             f"自定义接入暂不支持 {body.attack_class}；可用：{sorted(_ALLOWED_ATTACKS)}"
-            "（A3 需要改写 MCP server 的工具描述，当前不在上传配置能力内）"
+            "（A3 需要改写 MCP server 的工具描述，当前不在能力内）"
         )
     if body.defense not in ("off", "block", "alert"):
         raise ValueError("defense 只能是 off / block / alert")
-    exe = os.path.basename(body.command[0]).lower()
-    if exe not in _ALLOWED_PY:
-        raise ValueError(
-            f"命令必须以 python/python3 开头（收到 {body.command[0]!r}）；"
-            "这是防止上传配置任意执行本机程序的白名单"
-        )
-    for arg in body.command:
-        if not arg or "\x00" in arg or len(arg) > 500:
-            raise ValueError("command 参数不能为空、不能含 NUL、且单条不超过 500 字符")
-    unknown = [s for s in body.sinks if body.tool_classes.get(s) != "sink"]
+
+    allowed = TEMPLATE_TOOLS[body.template]
+    unknown = [t for t in body.tool_classes if t not in allowed]
     if unknown:
-        raise ValueError(f"sinks 必须同时标注为 sink：{unknown}")
+        raise ValueError(
+            f"模板 {body.template} 不含工具 {unknown}；可用工具：{sorted(allowed)}"
+            "（平台只执行自己的内置 MCP server，不能新增工具）"
+        )
+    bad_sinks = [s for s in body.sinks if body.tool_classes.get(s) != "sink"]
+    if bad_sinks:
+        raise ValueError(f"sinks 必须同时标注为 sink：{bad_sinks}")
     sources = [t for t, c in body.tool_classes.items() if c == "source"]
     if not sources:
         raise ValueError("至少要把一个工具标注为 source，污点层才有输入")
@@ -85,9 +103,29 @@ def validate(body: CustomRunBody) -> None:
 
 def target_id(body: CustomRunBody) -> str:
     seed = json.dumps(
-        {"name": body.name, "command": body.command}, ensure_ascii=False, sort_keys=True
+        {
+            "name": body.name,
+            "template": body.template,
+            "tool_classes": body.tool_classes,
+            "sinks": sorted(body.sinks),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
     ).encode("utf-8")
     return "C-" + hashlib.sha256(seed).hexdigest()[:8].upper()
+
+
+def _backend_command(template: str) -> tuple[str, ...]:
+    """执行体由平台写死：只跑内置 range.backend，不接受用户传入的命令。"""
+    return (
+        sys.executable,
+        "-m",
+        "range.backend",
+        "--profile",
+        template,
+        "--workdir",
+        "{workdir}",
+    )
 
 
 def build_entry(body: CustomRunBody) -> TargetSpecEntry:
@@ -95,18 +133,18 @@ def build_entry(body: CustomRunBody) -> TargetSpecEntry:
     entry = TargetSpecEntry(
         id=target_id(body),
         name=body.name,
-        profile="custom",
+        profile=body.template,
         port=0,
-        vulnerability="运行时接入的自定义 MCP 工具链",
-        mcp_servers=(body.name,),
+        vulnerability="运行时接入的自定义工具分类",
+        mcp_servers=(body.template,),
         tool_classes=dict(body.tool_classes),
         carrier="doc",
         carrier_tool=body.carrier_tool,
         sinks=tuple(body.sinks),
         hardened=body.hardened,
         applicable=NO_DESC_SURFACE,
-        description=body.description or "用户上传配置接入的 MCP server",
-        backend_command=tuple(body.command),
+        description=body.description or "用户声明工具分类的自定义工具面",
+        backend_command=_backend_command(body.template),
     )
     return register_custom(entry)
 
@@ -131,25 +169,17 @@ def request_payload(entry: TargetSpecEntry, body: CustomRunBody) -> dict[str, An
 
 
 def example_body() -> dict[str, Any]:
-    """本地自检用：直接用内置 range.backend 当「用户自己的 MCP server」。"""
+    """前端「填入样例」：t1 模板的默认工具清单，点一下即可跑通。"""
     return {
-        "name": "示例 MCP 工具链",
-        "command": [
-            sys.executable,
-            "-m",
-            "range.backend",
-            "--profile",
-            "t1",
-            "--workdir",
-            "{workdir}",
-        ],
-        "tool_classes": {"read_doc": "source", "send_email": "sink"},
+        "name": "示例工具面",
+        "template": "t1",
+        "tool_classes": dict(TEMPLATE_TOOLS["t1"]),
         "sinks": ["send_email"],
         "carrier_tool": "read_doc",
         "attack_class": AttackClass.A2_INDIRECT_TOOL_RESULT.value,
         "seed": 42,
         "defense": "block",
-        "description": "自检示例：与内置 T1 同工具面，验证上传配置链路",
-        "note": "本地自检",
+        "description": "自检示例：t1 工具面，验证模板 + 工具清单链路",
+        "note": "接入自检",
         "confirm": True,
     }

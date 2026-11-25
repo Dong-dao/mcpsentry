@@ -15,7 +15,7 @@ export type Tier = "off" | "block" | "alert";
 /** 自定义 MCP 接入配置：与 platform_api/custom.py 的 CustomRunBody 一一对应。 */
 export interface CustomConfig {
   name: string;
-  command: string[];
+  template: string;
   tool_classes: Record<string, "source" | "sink" | "neutral">;
   sinks: string[];
   carrier_tool?: string;

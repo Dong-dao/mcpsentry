@@ -215,9 +215,10 @@ def custom_example() -> dict[str, Any]:
 async def start_custom_run(
     body: custom_api.CustomRunBody, background: BackgroundTasks
 ) -> dict[str, Any]:
-    """上传自己的 MCP server 配置，按内置靶标同样的链路跑一组攻击。
+    """上传模板 + 工具清单，按内置靶标同样的链路跑一组攻击。
 
-    注意：命令在平台主机执行，服务端未设 MCPSENTRY_ALLOW_CUSTOM=1 时直接 403。
+    平台只执行自己的内置 MCP server，不接受用户命令；服务端未设
+    MCPSENTRY_ALLOW_CUSTOM=1 时直接 403。
     """
     try:
         custom_api.ensure_enabled()

@@ -7,10 +7,15 @@ import { ATTACK_LABEL, type CustomConfig, type Tier } from "../types";
 const STATIC = import.meta.env.VITE_STATIC === "1";
 const CLASSES = ["A1_direct_injection", "A2_indirect_tool_result", "A4_exfiltration_inducement"];
 const DEFENSES = ["block", "off", "alert"];
+const TEMPLATES = [
+  { id: "t1", label: "t1 · 客服/文档外渗", tools: "read_doc（读文档）· send_email（发信）" },
+  { id: "t2", label: "t2 · 调研/网页+写文件", tools: "web_fetch · read_doc · write_file · send_email" },
+  { id: "t5", label: "t5 · 加固对照", tools: "read_doc · send_email（仅 system prompt 加固）" },
+];
 
 type Form = {
   name: string;
-  commandText: string;
+  template: string;
   classesText: string;
   sinksText: string;
   carrierTool: string;
@@ -20,19 +25,15 @@ type Form = {
   note: string;
 };
 
-type FieldKey = "commandText" | "name" | "classesText" | "sinksText";
+type FieldKey = "name" | "classesText" | "sinksText";
 type FormErrors = Partial<Record<FieldKey, string>>;
 
 // 与 DOM 顺序一致：提交后焦点落在第一个出错的控件上。
-const FIELD_ORDER: FieldKey[] = ["commandText", "name", "classesText", "sinksText"];
+const FIELD_ORDER: FieldKey[] = ["name", "classesText", "sinksText"];
 
 const INITIAL_FORM: Form = {
   name: "",
-  commandText: JSON.stringify(
-    ["python", "-m", "range.backend", "--profile", "t1", "--workdir", "{workdir}"],
-    null,
-    2,
-  ),
+  template: "t1",
   classesText: JSON.stringify({ read_doc: "source", send_email: "sink" }, null, 2),
   sinksText: "send_email",
   carrierTool: "read_doc",
@@ -49,19 +50,6 @@ function jsonErrorLine(text: string, err: unknown): number {
   const byPos = /position (\d+)/i.exec(msg);
   if (byPos) return text.slice(0, Number(byPos[1])).split("\n").length;
   return 1;
-}
-
-function validateCommand(text: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    return `command 不是合法 JSON：请检查第 ${jsonErrorLine(text, e)} 行的引号与逗号。示例：["python","-m","server"]`;
-  }
-  if (!Array.isArray(parsed) || parsed.some((x) => typeof x !== "string")) {
-    return 'command 必须是字符串数组。示例：["python","-m","server"]';
-  }
-  return null;
 }
 
 function validateClasses(text: string): string | null {
@@ -83,8 +71,6 @@ function validateField(key: FieldKey, form: Form): string | null {
   switch (key) {
     case "name":
       return form.name.trim() ? null : "请填写工具名，便于在运行台识别这次接入。";
-    case "commandText":
-      return validateCommand(form.commandText);
     case "classesText":
       return validateClasses(form.classesText);
     case "sinksText":
@@ -167,7 +153,7 @@ export default function Custom() {
       const cfg = await api.customExample();
       const next: Form = {
         name: cfg.name,
-        commandText: JSON.stringify(cfg.command, null, 2),
+        template: cfg.template ?? "t1",
         classesText: JSON.stringify(cfg.tool_classes, null, 2),
         sinksText: (cfg.sinks ?? []).join(", "),
         carrierTool: cfg.carrier_tool ?? "read_doc",
@@ -211,7 +197,7 @@ export default function Custom() {
     try {
       const body: CustomConfig = {
         name: form.name.trim(),
-        command: JSON.parse(form.commandText) as string[],
+        template: form.template,
         tool_classes: JSON.parse(form.classesText) as Record<string, "source" | "sink" | "neutral">,
         sinks: form.sinksText
           .split(/[,，\s]+/)
@@ -241,8 +227,8 @@ export default function Custom() {
             接入自己的 MCP 工具链
           </h1>
           <p className="mt-2 max-w-3xl text-base leading-7 text-slate-300">
-            上传 stdio MCP server 命令与工具分类，平台用同一套攻击引擎和确定性 oracle
-            跑一遍；完成后可在运行台逐组查看证据。
+            选一个内置工具面模板、声明你的工具分类，平台用同一套攻击引擎和确定性 oracle
+            跑一遍；完成后可在运行台逐组查看证据。只使用平台内置的 mock 工具，不执行你上传的命令。
           </p>
         </div>
         <button className="btn" type="button" onClick={loadExample} disabled={disabled}>
@@ -259,13 +245,12 @@ export default function Custom() {
       ) : (
         <Notice
           tone="info"
-          title="安全提示"
-          message="命令会在平台所在主机执行；请只接入你自己授权的 MCP 工具链。"
+          title="安全说明"
+          message="平台只运行自己的内置 mock 工具面，不执行你上传的命令，所有 sink 只落盘不出网。"
           hint={
             <>
-              服务端默认关闭该能力，需显式设置{" "}
-              <code className="mono rounded bg-ink px-1.5 py-0.5">MCPSENTRY_ALLOW_CUSTOM=1</code>
-              。目前只接受以 python/python3 开头的命令，A3 工具描述投毒不在上传配置能力内。
+              可选模板为 t1 / t2 / t5，工具分类只能在模板暴露的工具里调整；A3 工具描述投毒不在该能力内。
+              这是"配置自己的工具面并看它会不会被骗"，不是"上传任意 MCP server 代码"。
             </>
           }
         />
@@ -314,23 +299,32 @@ export default function Custom() {
       <fieldset disabled={disabled} className="space-y-6">
         <div className="grid gap-6 md:grid-cols-2">
           <section className="panel">
-            <h2 className="border-b border-line pb-3 text-xl font-semibold text-sky-300">1 · MCP server 命令</h2>
+            <h2 className="border-b border-line pb-3 text-xl font-semibold text-sky-300">1 · 工具面模板</h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              JSON 字符串数组，{" "}
-              <code className="mono rounded bg-ink px-1.5 py-0.5">{"{workdir}"}</code>{" "}
-              会替换成本组工作目录。
+              执行体由平台内置，选择模板后只能在其工具集内调整分类与 sink。
             </p>
             <label className="mt-4 block text-sm font-semibold text-slate-300">
-              server 命令（JSON 数组）
-              <textarea
-                {...bindField("commandText")}
-                className={`field mono mt-2 h-44 w-full resize-y leading-5 ${errors.commandText ? "field-error" : ""}`}
-                value={form.commandText}
-                onChange={(e) => patch("commandText", e.target.value)}
-                spellCheck={false}
-              />
+              内置模板
+              <select
+                className="field mt-2 w-full"
+                value={form.template}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  const preset = TEMPLATES.find((x) => x.id === t);
+                  patch("template", t);
+                  if (preset) setNotice(`已切换到 ${preset.label}，请同步把工具分类改成该模板的工具集。`);
+                }}
+              >
+                {TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
             </label>
-            {errorText("commandText")}
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              当前模板工具：{TEMPLATES.find((t) => t.id === form.template)?.tools}
+            </p>
             <label className="mt-4 block text-sm font-semibold text-slate-300">
               工具名
               <input

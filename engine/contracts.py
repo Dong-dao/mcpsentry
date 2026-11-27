@@ -27,6 +27,7 @@ class AttackClass(str, Enum):
 class PolicyMode(str, Enum):
     ALERT = "alert"
     BLOCK = "block"
+    STRICT = "strict"
 
 
 class DetectionLayer(str, Enum):

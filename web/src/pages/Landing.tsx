@@ -110,6 +110,15 @@ export default function Landing() {
             看基准数字
           </a>
         </div>
+        <a
+          href={href("/health")}
+          className="mt-4 block max-w-3xl rounded-xl border border-line bg-panel/70 p-5 transition hover:border-sky-500/60"
+        >
+          <div className="text-base font-semibold text-slate-100">给自己的 MCP 配置做一次安全体检</div>
+          <p className="mt-1 text-sm leading-6 text-slate-400">
+            粘贴配置或工具清单，本地规则即时给出四维评分与修补建议。不上传、不执行。
+          </p>
+        </a>
       </header>
 
       {error && !m && (

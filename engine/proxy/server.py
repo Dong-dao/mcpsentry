@@ -13,6 +13,8 @@ D5：tools/list 跑描述投毒扫描（poison_score≥2 高危）+ rug-pull 哈
     SINK 调用走语义层复核（influenced∧confidence≥0.8 → 拦截，单会话 20 次上限）。
 D12：block 档下，描述扫描高危的工具同样在调用时被拒（desc_block）——D9 实跑
     暴露的 T3 盲区（基线即投毒、无漂移可比对，扫描只记录不拦截）；alert 档仍只记录。
+    v1.2 strict 档：具备 block 的全部拦截，且 downgraded=true 后所有 SINK 调用
+    一律拒绝（capability_block），不再要求污点命中；off/block/alert 行为不变。
 """
 
 from __future__ import annotations
@@ -167,7 +169,7 @@ async def run_proxy(
                     f"(description changed after baseline)"
                 )
 
-            if name in desc_highrisk and policy_mode is PolicyMode.BLOCK:
+            if name in desc_highrisk and policy_mode in (PolicyMode.BLOCK, PolicyMode.STRICT):
                 logger.log(
                     "taint",
                     "desc_block",
@@ -178,10 +180,27 @@ async def run_proxy(
                 )
 
             if tool_class is ToolClass.SINK:
+                # strict：一旦降级，后续 SINK 全部拒绝，无需污点命中（能力降级强化）
+                if policy_mode is PolicyMode.STRICT and downgraded:
+                    logger.log(
+                        "taint",
+                        "capability_block",
+                        {
+                            "call_id": call_id,
+                            "tool": name,
+                            "downgraded": True,
+                            "blocked": True,
+                            "reason": "strict capability downgrade",
+                        },
+                    )
+                    raise RuntimeError(
+                        f"policy_blocked: capability downgraded; all SINK calls denied on {name}"
+                    )
+
                 hits = detect_taint(arguments, taint_store)
                 # 能力降级：首次读取不可信内容后，alert 档也升级为 block
                 blocked = bool(hits) and (
-                    policy_mode is PolicyMode.BLOCK
+                    policy_mode in (PolicyMode.BLOCK, PolicyMode.STRICT)
                     or (downgraded and policy_mode is PolicyMode.ALERT)
                 )
                 for hit in hits:

@@ -1,215 +1,197 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { Notice } from "../components/ui";
 import { navigate } from "../router";
-import { ATTACK_LABEL, type CustomConfig, type Tier } from "../types";
+import {
+  ATTACK_LABEL,
+  type CustomConfig,
+  type CustomDefense,
+  type ProbeTool,
+  type ToolRole,
+} from "../types";
+import AdvancedManual, {
+  type ManualDraft,
+  type ManualErrors,
+} from "../components/wizard/AdvancedManual";
+import ConfigSummaryCard from "../components/wizard/ConfigSummaryCard";
+import StepIndicator from "../components/wizard/StepIndicator";
+import TemplateCard from "../components/wizard/TemplateCard";
+import ToolProbeList, { type ProbeState } from "../components/wizard/ToolProbeList";
+import {
+  DISABLED_TEMPLATES,
+  TEMPLATES,
+  defaultCommand,
+  toolsForTemplate,
+} from "../components/wizard/templates";
 
 const STATIC = import.meta.env.VITE_STATIC === "1";
+const FALLBACK_INFO = "未匹配，已使用模板默认工具与分类，可手动调整";
 const CLASSES = ["A1_direct_injection", "A2_indirect_tool_result", "A4_exfiltration_inducement"];
-const DEFENSES = ["block", "off", "alert"];
-const TEMPLATES = [
-  { id: "t1", label: "t1 · 客服/文档外渗", tools: "read_doc（读文档）· send_email（发信）" },
-  { id: "t2", label: "t2 · 调研/网页+写文件", tools: "web_fetch · read_doc · write_file · send_email" },
-  { id: "t5", label: "t5 · 加固对照", tools: "read_doc · send_email（仅 system prompt 加固）" },
-];
 
-type Form = {
-  name: string;
-  template: string;
-  classesText: string;
-  sinksText: string;
-  carrierTool: string;
-  attackClass: string;
-  seed: number;
-  defense: Tier;
-  note: string;
-};
-
-type FieldKey = "name" | "classesText" | "sinksText";
-type FormErrors = Partial<Record<FieldKey, string>>;
-
-// 与 DOM 顺序一致：提交后焦点落在第一个出错的控件上。
-const FIELD_ORDER: FieldKey[] = ["name", "classesText", "sinksText"];
-
-const INITIAL_FORM: Form = {
-  name: "",
-  template: "t1",
-  classesText: JSON.stringify({ read_doc: "source", send_email: "sink" }, null, 2),
-  sinksText: "send_email",
-  carrierTool: "read_doc",
-  attackClass: CLASSES[1],
-  seed: 42,
-  defense: "block",
-  note: "",
-};
-
-function jsonErrorLine(text: string, err: unknown): number {
-  const msg = err instanceof Error ? err.message : String(err);
-  const byLine = /line (\d+)/i.exec(msg);
-  if (byLine) return Number(byLine[1]);
-  const byPos = /position (\d+)/i.exec(msg);
-  if (byPos) return text.slice(0, Number(byPos[1])).split("\n").length;
-  return 1;
+function inferRole(tool: ProbeTool, defaults: Array<{ name: string; role: ToolRole }>): ToolRole {
+  const hit = defaults.find((d) => d.name === tool.name);
+  if (hit) return hit.role;
+  const text = `${tool.name} ${tool.description ?? ""}`.toLowerCase();
+  if (/send|email|mail|write|post|upload|publish|submit|外发|发送|写入|上传/.test(text)) return "sink";
+  if (/read|fetch|get|list|search|query|web|doc|input|读取|网页|文档|搜索/.test(text)) return "source";
+  return "neutral";
 }
 
-function validateClasses(text: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    return `tool_classes 不是合法 JSON：请检查第 ${jsonErrorLine(text, e)} 行的引号与逗号。示例：{"read_doc":"source","send_email":"sink"}`;
-  }
+function parseClasses(text: string): Record<string, ToolRole> {
+  const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return 'tool_classes 必须是对象。示例：{"read_doc":"source","send_email":"sink"}';
+    throw new Error("tool_classes 必须是对象");
   }
-  const illegal = Object.values(parsed).find((v) => v !== "source" && v !== "sink" && v !== "neutral");
-  if (illegal !== undefined) return `工具分类只能是 source / sink / neutral，发现非法值：${String(illegal)}`;
-  return null;
-}
-
-function validateField(key: FieldKey, form: Form): string | null {
-  switch (key) {
-    case "name":
-      return form.name.trim() ? null : "请填写工具名，便于在运行台识别这次接入。";
-    case "classesText":
-      return validateClasses(form.classesText);
-    case "sinksText":
-      return form.sinksText.split(/[,，\s]+/).filter(Boolean).length
-        ? null
-        : "至少填写一个 sink 工具，多个用逗号分隔";
-  }
-}
-
-function validateAll(form: Form): FormErrors {
-  const errors: FormErrors = {};
-  FIELD_ORDER.forEach((key) => {
-    const msg = validateField(key, form);
-    if (msg) errors[key] = msg;
+  const result: Record<string, ToolRole> = {};
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (value !== "source" && value !== "sink" && value !== "neutral") {
+      throw new Error(`工具 ${key} 的分类不合法`);
+    }
+    result[key] = value;
   });
-  return errors;
+  return result;
 }
 
 export default function Custom() {
-  const [form, setForm] = useState<Form>(INITIAL_FORM);
-  const [baseline, setBaseline] = useState<Form>(INITIAL_FORM);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [exampleLoading, setExampleLoading] = useState(false);
-  const [overwritePending, setOverwritePending] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [template, setTemplate] = useState(TEMPLATES[0].id);
+  const [commandText, setCommandText] = useState(defaultCommand(TEMPLATES[0].id).join(" "));
+  const [tools, setTools] = useState<ProbeTool[]>(toolsForTemplate(TEMPLATES[0].id));
+  const [probeState, setProbeState] = useState<ProbeState>("idle");
+  const [probeInfo, setProbeInfo] = useState("");
+  const [name, setName] = useState("");
+  const [carrierTool, setCarrierTool] = useState("read_doc");
+  const [attackClass, setAttackClass] = useState(CLASSES[1]);
+  const [seed, setSeed] = useState(42);
+  const [defense, setDefense] = useState<CustomDefense>("block");
+  const [note, setNote] = useState("");
+  const [informed, setInformed] = useState(false);
+  const [stepError, setStepError] = useState("");
+
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advanced, setAdvanced] = useState<ManualDraft>({
+    name: "",
+    classesText: JSON.stringify({ read_doc: "source", send_email: "sink" }, null, 2),
+    sinksText: "send_email",
+    carrierTool: "read_doc",
+    attackClass: CLASSES[1],
+    seed: 42,
+    defense: "block",
+    note: "",
+  });
+  const [advancedErrors, setAdvancedErrors] = useState<ManualErrors>({});
+
   const [busy, setBusy] = useState(false);
   const [apiError, setApiError] = useState("");
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<{ run_id: string; target: string } | null>(null);
-  const fieldRefs = useRef<Partial<Record<FieldKey, HTMLElement | null>>>({});
+  const probeSeq = useRef(0);
 
-  const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
-  const disabled = STATIC || busy || result !== null;
+  const templateLabel = TEMPLATES.find((t) => t.id === template)?.title ?? template;
+  const command = useMemo(() => {
+    const trimmed = commandText.trim();
+    return trimmed ? trimmed.split(/\s+/) : defaultCommand(template);
+  }, [commandText, template]);
+  const sinks = tools.filter((t) => t.role === "sink").map((t) => t.name);
+  const hasSource = tools.some((t) => t.role === "source");
+  const hasSink = sinks.length > 0;
 
-  function patch<K extends keyof Form>(key: K, value: Form[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setErrors((prev) => {
+  function patchAdvanced<K extends keyof ManualDraft>(key: K, value: ManualDraft[K]) {
+    setAdvanced((prev) => ({ ...prev, [key]: value }));
+    setAdvancedErrors((prev) => {
       if (!(key in prev)) return prev;
       const next = { ...prev };
-      delete next[key as FieldKey];
+      delete next[key];
       return next;
     });
   }
 
-  function onBlur(key: FieldKey) {
-    const msg = validateField(key, form);
-    setErrors((prev) => {
-      const next = { ...prev };
-      if (msg) next[key] = msg;
-      else delete next[key];
-      return next;
-    });
+  function selectTemplate(id: string) {
+    setTemplate(id);
+    setCommandText(defaultCommand(id).join(" "));
+    setTools(toolsForTemplate(id));
+    setCarrierTool(toolsForTemplate(id).find((t) => t.role === "source")?.name ?? "");
+    setProbeState("idle");
+    setProbeInfo("");
+    setNotice("已切换模板，命令已更新为对应默认值，可再修改。");
+    setResult(null);
   }
 
-  function bindField(key: FieldKey) {
-    return {
-      "aria-invalid": Boolean(errors[key]),
-      "aria-describedby": errors[key] ? `err-${key}` : undefined,
-      onBlur: () => onBlur(key),
-      ref: (el: HTMLElement | null) => {
-        fieldRefs.current[key] = el;
-      },
-    };
-  }
-
-  function errorText(key: FieldKey) {
-    return errors[key] ? (
-      <p id={`err-${key}`} role="alert" className="mt-2 text-sm leading-6 text-bad">
-        错误：{errors[key]}
-      </p>
-    ) : null;
-  }
-
-  async function doFill() {
-    setOverwritePending(false);
-    setExampleLoading(true);
-    setApiError("");
-    setNotice("");
-    setErrors({});
-    try {
-      const cfg = await api.customExample();
-      const next: Form = {
-        name: cfg.name,
-        template: cfg.template ?? "t1",
-        classesText: JSON.stringify(cfg.tool_classes, null, 2),
-        sinksText: (cfg.sinks ?? []).join(", "),
-        carrierTool: cfg.carrier_tool ?? "read_doc",
-        attackClass: cfg.attack_class ?? CLASSES[1],
-        seed: cfg.seed ?? 42,
-        defense: cfg.defense ?? "block",
-        note: cfg.note ?? "",
-      };
-      setForm(next);
-      setBaseline(next);
-      setResult(null);
-      setNotice("样例已填入，可以直接提交，也可以按需修改。");
-    } catch (e) {
-      setApiError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExampleLoading(false);
-    }
-  }
-
-  function loadExample() {
-    if (dirty) {
-      setOverwritePending(true);
+  async function loadTools() {
+    const seq = ++probeSeq.current;
+    const defaults = toolsForTemplate(template);
+    setProbeState("loading");
+    setProbeInfo("载入中…");
+    setTools(defaults);
+    setStepError("");
+    if (STATIC) {
+      setProbeState("degraded");
+      setProbeInfo(FALLBACK_INFO);
       return;
     }
-    void doFill();
+    try {
+      const res = await api.probeCustom(command);
+      if (seq !== probeSeq.current) return;
+      if (!res.ok || !Array.isArray(res.tools) || res.tools.length === 0) {
+        throw new Error("probe returned no tools");
+      }
+      const mapped: ProbeTool[] = res.tools.map((tool) => ({
+        ...tool,
+        role: inferRole(tool, defaults),
+      }));
+      const recognized = mapped.filter((tool) => tool.role !== "neutral").length;
+      if (recognized === 0) {
+        setTools(defaults);
+        setProbeState("degraded");
+        setProbeInfo(FALLBACK_INFO);
+        return;
+      }
+      setTools(mapped);
+      setCarrierTool((prev) =>
+        mapped.some((tool) => tool.name === prev)
+          ? prev
+          : (mapped.find((tool) => tool.role === "source")?.name ?? ""),
+      );
+      if (recognized === mapped.length) {
+        setProbeState("success");
+        setProbeInfo(`已载入 ${mapped.length} 个工具，可调整分类。`);
+      } else {
+        setProbeState("partial");
+        setProbeInfo("已载入部分工具，其余使用模板默认分类，可手动调整。");
+      }
+    } catch {
+      if (seq !== probeSeq.current) return;
+      setTools(defaults);
+      setProbeState("degraded");
+      setProbeInfo(FALLBACK_INFO);
+    }
   }
 
-  async function submit() {
+  function goStep2() {
+    if (!name.trim()) {
+      setStepError("请先填写接入名称，便于在运行台识别这次接入。");
+      return;
+    }
+    setStepError("");
+    setStep(2);
+    void loadTools();
+  }
+
+  function goStep3() {
+    if (!hasSource || !hasSink) {
+      setStepError("至少需要一项数据来源和一项外发出口，才能进入核对。");
+      return;
+    }
+    setStepError("");
+    setStep(3);
+  }
+
+  async function submit(body: CustomConfig) {
+    setBusy(true);
     setApiError("");
     setNotice("");
     setResult(null);
-    const nextErrors = validateAll(form);
-    if (Object.keys(nextErrors).length) {
-      setErrors(nextErrors);
-      const first = FIELD_ORDER.find((k) => nextErrors[k]);
-      if (first) requestAnimationFrame(() => fieldRefs.current[first]?.focus());
-      return;
-    }
-    setErrors({});
-    setBusy(true);
     try {
-      const body: CustomConfig = {
-        name: form.name.trim(),
-        template: form.template,
-        tool_classes: JSON.parse(form.classesText) as Record<string, "source" | "sink" | "neutral">,
-        sinks: form.sinksText
-          .split(/[,，\s]+/)
-          .map((s) => s.trim())
-          .filter(Boolean),
-        carrier_tool: form.carrierTool.trim(),
-        attack_class: form.attackClass,
-        seed: Number(form.seed),
-        defense: form.defense,
-        note: form.note,
-        confirm: true,
-      };
       const res = await api.startCustom(body);
       setResult({ run_id: res.run_id, target: res.target });
     } catch (e) {
@@ -219,22 +201,82 @@ export default function Custom() {
     }
   }
 
+  function runWizard() {
+    if (!informed || !hasSource || !hasSink) return;
+    void submit({
+      name: name.trim(),
+      template,
+      tool_classes: Object.fromEntries(tools.map((t) => [t.name, t.role ?? "neutral"])),
+      sinks,
+      carrier_tool: carrierTool,
+      attack_class: attackClass,
+      seed: Number(seed) || 42,
+      defense,
+      note,
+      confirm: true,
+      command,
+    });
+  }
+
+  function syncAdvanced() {
+    setAdvanced({
+      name: name.trim(),
+      classesText: JSON.stringify(
+        Object.fromEntries(tools.map((t) => [t.name, t.role ?? "neutral"])),
+        null,
+        2,
+      ),
+      sinksText: sinks.join(", "),
+      carrierTool,
+      attackClass,
+      seed,
+      defense,
+      note,
+    });
+    setAdvancedErrors({});
+  }
+
+  function submitManual() {
+    const errors: ManualErrors = {};
+    if (!advanced.name.trim()) errors.name = "请填写工具名，便于在运行台识别这次接入。";
+    let classes: Record<string, ToolRole> = {};
+    try {
+      classes = parseClasses(advanced.classesText);
+    } catch {
+      errors.classesText = "tool_classes 不是合法 JSON，请检查引号与逗号。";
+    }
+    const manualSinks = advanced.sinksText
+      .split(/[,，\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!manualSinks.length) errors.sinksText = "至少填写一个 sink 工具，多个用逗号分隔";
+    setAdvancedErrors(errors);
+    if (Object.keys(errors).length) return;
+    void submit({
+      name: advanced.name.trim(),
+      template,
+      tool_classes: classes,
+      sinks: manualSinks,
+      carrier_tool: advanced.carrierTool.trim(),
+      attack_class: advanced.attackClass,
+      seed: Number(advanced.seed) || 42,
+      defense: advanced.defense,
+      note: advanced.note,
+      confirm: true,
+      command,
+    });
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[30px] font-semibold leading-tight text-slate-50 sm:text-[36px]">
-            接入自己的 MCP 工具链
-          </h1>
-          <p className="mt-2 max-w-3xl text-base leading-7 text-slate-300">
-            选一个内置工具面模板、声明你的工具分类，平台用同一套攻击引擎和确定性 oracle
-            跑一遍；完成后可在运行台逐组查看证据。只使用平台内置的 mock 工具，不执行你上传的命令。
-          </p>
-        </div>
-        <button className="btn" type="button" onClick={loadExample} disabled={disabled}>
-          {exampleLoading ? "读取样例…" : "填入样例"}
-        </button>
-      </div>
+    <div className="space-y-4">
+      <header>
+        <h1 className="text-[30px] font-semibold leading-tight text-slate-50 sm:text-[36px]">
+          真接自己的 MCP
+        </h1>
+        <p className="mt-2 max-w-3xl text-base leading-7 text-slate-300">
+          选模板、声明工具分类、核对命令，然后运行。sink 只落盘不出网。
+        </p>
+      </header>
 
       {STATIC ? (
         <Notice
@@ -243,33 +285,23 @@ export default function Custom() {
           message="静态演示版不能发起运行。请用 VITE_API_BASE 指向本地或自建后端后再接入。"
         />
       ) : (
-        <Notice
-          tone="info"
-          title="安全说明"
-          message="平台只运行自己的内置 mock 工具面，不执行你上传的命令，所有 sink 只落盘不出网。"
-          hint={
-            <>
-              可选模板为 t1 / t2 / t5，工具分类只能在模板暴露的工具里调整；A3 工具描述投毒不在该能力内。
-              这是"配置自己的工具面并看它会不会被骗"，不是"上传任意 MCP server 代码"。
-            </>
-          }
-        />
-      )}
-
-      {overwritePending && (
-        <div role="status" className="flex flex-wrap items-center gap-3 rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm text-info">
-          <span className="font-semibold">填入样例会覆盖当前已填内容</span>
-          <button className="btn min-h-10 px-4 py-2 text-sm" type="button" onClick={() => void doFill()}>
-            覆盖并填入
-          </button>
-          <button className="btn min-h-10 px-4 py-2 text-sm" type="button" onClick={() => setOverwritePending(false)}>
-            取消
-          </button>
+        <div
+          role="status"
+          className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-3 text-[13px] leading-5 text-slate-300"
+        >
+          <span className="font-semibold text-info">接入说明</span>
+          <span className="ml-2">
+            本次填写的 python 命令会在服务端执行，请只使用你自己授权的命令。自定义接入默认关闭；未启用时请设置
+            MCPSENTRY_ALLOW_CUSTOM=1。A3 工具描述投毒不在本次能力内。
+          </span>
         </div>
       )}
-      {notice && <Notice tone="info" title="操作完成" message={notice} />}
-      {apiError && <Notice tone="bad" title="接口调用失败" message={<span className="mono break-all">{apiError}</span>} />}
 
+      {notice && <Notice tone="info" title="操作完成" message={notice} />}
+      {stepError && <Notice tone="warn" title="请检查配置" message={stepError} />}
+      {apiError && (
+        <Notice tone="bad" title="接口调用失败" message={<span className="mono break-all">{apiError}</span>} />
+      )}
       {result && (
         <Notice
           tone="good"
@@ -281,161 +313,218 @@ export default function Custom() {
           }
           hint={
             <div className="flex flex-wrap gap-3 pt-1">
+              <button className="btn" type="button" onClick={() => navigate("/dashboard", { run: result.run_id })}>
+                去运行台
+              </button>
               <button
                 className="btn"
                 type="button"
-                onClick={() => navigate("/dashboard", { run: result.run_id })}
+                onClick={() => {
+                  setResult(null);
+                  setStep(1);
+                }}
               >
-                去看运行台
-              </button>
-              <button className="btn" type="button" onClick={() => setResult(null)}>
-                修改配置再跑一次
+                改配置再跑
               </button>
             </div>
           }
         />
       )}
 
-      <fieldset disabled={disabled} className="space-y-6">
-        <div className="grid gap-6 md:grid-cols-2">
-          <section className="panel">
-            <h2 className="border-b border-line pb-3 text-xl font-semibold text-sky-300">1 · 工具面模板</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              执行体由平台内置，选择模板后只能在其工具集内调整分类与 sink。
-            </p>
-            <label className="mt-4 block text-sm font-semibold text-slate-300">
-              内置模板
-              <select
-                className="field mt-2 w-full"
-                value={form.template}
-                onChange={(e) => {
-                  const t = e.target.value;
-                  const preset = TEMPLATES.find((x) => x.id === t);
-                  patch("template", t);
-                  if (preset) setNotice(`已切换到 ${preset.label}，请同步把工具分类改成该模板的工具集。`);
-                }}
-              >
+      <section className="flex h-[calc(100vh-320px)] min-h-[440px] max-h-[720px] flex-col overflow-hidden rounded-xl border border-line bg-panel/70 p-0">
+        <StepIndicator current={step} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {step === 1 && (
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">选模板</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                三个模板可直接选用；其余工具面暂未开放。
+              </p>
+              <ul className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {TEMPLATES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
+                  <TemplateCard
+                    key={t.id}
+                    template={t}
+                    selected={template === t.id}
+                    disabled={false}
+                    onSelect={() => selectTemplate(t.id)}
+                  />
                 ))}
-              </select>
-            </label>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              当前模板工具：{TEMPLATES.find((t) => t.id === form.template)?.tools}
-            </p>
-            <label className="mt-4 block text-sm font-semibold text-slate-300">
-              工具名
-              <input
-                {...bindField("name")}
-                className={`field mt-2 w-full ${errors.name ? "field-error" : ""}`}
-                value={form.name}
-                onChange={(e) => patch("name", e.target.value)}
-                placeholder="给我自己的服务起个名字"
-              />
-            </label>
-            {errorText("name")}
-            <label className="mt-4 block text-sm font-semibold text-slate-300">
-              工具分类 JSON（source / sink / neutral）
-              <textarea
-                {...bindField("classesText")}
-                className={`field mono mt-2 h-36 w-full resize-y leading-5 ${errors.classesText ? "field-error" : ""}`}
-                value={form.classesText}
-                onChange={(e) => patch("classesText", e.target.value)}
-                spellCheck={false}
-              />
-            </label>
-            {errorText("classesText")}
-          </section>
+                {DISABLED_TEMPLATES.map((t) => (
+                  <li key={t.title}>
+                    <div
+                      aria-disabled="true"
+                      className="flex min-h-[184px] w-full flex-col rounded-xl border border-line/60 bg-ink/40 p-4 opacity-60"
+                    >
+                      <span className="text-base font-semibold text-slate-100">{t.title}</span>
+                      <span className="mt-2 text-sm leading-6 text-slate-400">{t.description}</span>
+                      <span className="mt-auto text-[13px] text-slate-400">暂未开放</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
 
-          <section className="panel">
-            <h2 className="border-b border-line pb-3 text-xl font-semibold text-sky-300">2 · 攻击与判定</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-400">
-              sinks 必须是 tool_classes 里标成 sink 的工具，否则 oracle 无从判定。
-            </p>
-            <label className="mt-4 block text-sm font-semibold text-slate-300">
-              sink 工具（多个用逗号分隔）
-              <input
-                {...bindField("sinksText")}
-                className={`field mt-2 w-full ${errors.sinksText ? "field-error" : ""}`}
-                value={form.sinksText}
-                onChange={(e) => patch("sinksText", e.target.value)}
-              />
-            </label>
-            {errorText("sinksText")}
-            <label className="mt-4 block text-sm font-semibold text-slate-300">
-              载体读取工具（间接注入经它进入上下文）
-              <input
-                className="field mt-2 w-full"
-                value={form.carrierTool}
-                onChange={(e) => patch("carrierTool", e.target.value)}
-              />
-            </label>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm font-semibold text-slate-300">
-                攻击类
-                <select
-                  className="field mt-2 w-full"
-                  value={form.attackClass}
-                  onChange={(e) => patch("attackClass", e.target.value)}
-                >
-                  {CLASSES.map((c) => (
-                    <option key={c} value={c}>
-                      {ATTACK_LABEL[c] ?? c}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-semibold text-slate-300">
-                防御档
-                <select
-                  className="field mt-2 w-full"
-                  value={form.defense}
-                  onChange={(e) => patch("defense", e.target.value as Tier)}
-                >
-                  {DEFENSES.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <label className="block text-sm font-semibold text-slate-300">
+                  接入名称
+                  <input
+                    className="field mt-2 w-full"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="给我自己的服务起个名字"
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-300">
+                  防御档
+                  <select
+                    className="field mt-2 w-full"
+                    value={defense}
+                    onChange={(e) => setDefense(e.target.value as CustomDefense)}
+                  >
+                    <option value="block">标准 block</option>
+                    <option value="strict">严格 strict</option>
+                  </select>
+                </label>
+              </div>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <label className="block text-sm font-semibold text-slate-300">
+                  攻击类
+                  <select
+                    className="field mt-2 w-full"
+                    value={attackClass}
+                    onChange={(e) => setAttackClass(e.target.value)}
+                  >
+                    {CLASSES.map((c) => (
+                      <option key={c} value={c}>
+                        {ATTACK_LABEL[c] ?? c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-semibold text-slate-300">
+                  种子
+                  <input
+                    className="field mt-2 w-full"
+                    type="number"
+                    value={seed}
+                    onChange={(e) => setSeed(Number(e.target.value))}
+                  />
+                </label>
+                <label className="block text-sm font-semibold text-slate-300">
+                  备注
+                  <input
+                    className="field mt-2 w-full"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="mt-4 block text-sm font-semibold text-slate-300">
+                自定义 python 命令
+                <textarea
+                  className="field mono mt-2 h-24 w-full resize-y leading-6"
+                  value={commandText}
+                  onChange={(e) => setCommandText(e.target.value)}
+                  spellCheck={false}
+                />
+                <span className="mt-2 block text-[13px] font-normal leading-6 text-slate-400">
+                  按空格分词；平台会在服务端执行该命令。留空则使用模板默认命令。
+                </span>
               </label>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm font-semibold text-slate-300">
-                种子
-                <input
-                  className="field mt-2 w-full"
-                  type="number"
-                  value={form.seed}
-                  onChange={(e) => patch("seed", Number(e.target.value))}
+          )}
+
+          {step === 2 && (
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">确认工具</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                工具清单来自命令载入结果；未匹配时使用模板默认清单。分类可随时手动调整。
+              </p>
+              <div className="mt-4">
+                <ToolProbeList
+                  tools={tools}
+                  probeState={probeState}
+                  probeInfo={probeInfo}
+                  onRoleChange={(index, role) =>
+                    setTools((prev) => prev.map((t, i) => (i === index ? { ...t, role } : t)))
+                  }
+                  onRetry={() => void loadTools()}
                 />
-              </label>
-              <label className="block text-sm font-semibold text-slate-300">
-                备注
-                <input
-                  className="field mt-2 w-full"
-                  value={form.note}
-                  onChange={(e) => patch("note", e.target.value)}
-                />
-              </label>
+              </div>
             </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3">
+          )}
+
+          {step === 3 && (
+            <div>
+              <h2 className="text-xl font-semibold text-slate-100">核对并运行</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                核对命令与工具分类，勾选知情声明后即可提交。
+              </p>
+              <div className="mt-4">
+                <ConfigSummaryCard
+                  name={name.trim() || templateLabel}
+                  templateLabel={templateLabel}
+                  command={command}
+                  tools={tools}
+                  sinks={sinks}
+                  carrierTool={carrierTool}
+                  attackClass={attackClass}
+                  seed={seed}
+                  defense={defense}
+                  note={note}
+                  informed={informed}
+                  onInformedChange={setInformed}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        <footer className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
+          <button
+            className="btn min-h-11 px-4 text-sm"
+            type="button"
+            disabled={step === 1 || busy}
+            onClick={() => {
+              setStepError("");
+              setStep((s) => (s === 3 ? 2 : 1));
+            }}
+          >
+            上一步
+          </button>
+          {!advancedOpen &&
+            (step < 3 ? (
               <button
-                className="btn btn-primary min-h-[48px] w-full justify-center"
+                className="btn btn-primary min-h-[48px] w-full justify-center sm:w-auto"
                 type="button"
-                onClick={submit}
-                disabled={STATIC || busy}
+                onClick={step === 1 ? goStep2 : goStep3}
+              >
+                下一步
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary min-h-[48px] w-full justify-center sm:w-auto"
+                type="button"
+                onClick={runWizard}
+                disabled={STATIC || busy || !informed || !hasSource || !hasSink}
                 aria-busy={busy}
               >
-                {busy ? "正在提交…" : "上传配置并运行"}
+                {busy ? "正在提交…" : "运行"}
               </button>
-              {!form.name.trim() && <p className="text-sm text-warn">请先填写工具名</p>}
-            </div>
-          </section>
-        </div>
-      </fieldset>
+            ))}
+        </footer>
+      </section>
+
+      <AdvancedManual
+        open={advancedOpen}
+        onToggle={() => setAdvancedOpen((v) => !v)}
+        draft={advanced}
+        errors={advancedErrors}
+        onPatch={patchAdvanced}
+        onSubmit={submitManual}
+        onSync={syncAdvanced}
+        busy={busy}
+        staticMode={STATIC}
+      />
     </div>
   );
 }

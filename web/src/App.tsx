@@ -5,6 +5,7 @@ import { useRoute } from "./router";
 import Custom from "./pages/Custom";
 import Dashboard from "./pages/Dashboard";
 import Demo from "./pages/Demo";
+import HealthPage from "./pages/Health";
 import Landing from "./pages/Landing";
 import MetricsPage from "./pages/MetricsPage";
 import type { Health } from "./types";
@@ -14,6 +15,7 @@ const NAV = [
   { path: "/demo", label: "一键 demo" },
   { path: "/dashboard", label: "运行台" },
   { path: "/custom", label: "接入自己的 MCP" },
+  { path: "/health", label: "安全体检" },
   { path: "/metrics", label: "指标" },
 ];
 
@@ -152,6 +154,7 @@ export default function App() {
         {page.path === "/demo" && <Demo />}
         {page.path === "/dashboard" && <Dashboard />}
         {page.path === "/custom" && <Custom />}
+        {page.path === "/health" && <HealthPage />}
         {page.path === "/metrics" && <MetricsPage />}
       </main>
 

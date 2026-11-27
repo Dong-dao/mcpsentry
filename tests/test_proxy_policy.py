@@ -66,6 +66,35 @@ def _entries(path: Path) -> list[dict]:
     return [json.loads(line) for line in lines]
 
 
+async def _run_clean_after_source(policy: str, flow_log: Path, capture: Path) -> tuple[bool, str]:
+    """读取不可信文档后，调用一次无污点命中的干净 SINK。"""
+    backend = [sys.executable, str(FIXTURE), str(capture)]
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-m",
+            "engine.proxy",
+            "--backend",
+            json.dumps(backend),
+            "--log",
+            str(flow_log),
+            "--taint-log",
+            str(flow_log.parent / "taint.jsonl"),
+            "--policy",
+            policy,
+        ],
+    )
+    async with stdio_client(params) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            doc = await session.call_tool("read_external_doc", {"path": "/tmp/x.md"})
+            assert not doc.isError
+            sink = await session.call_tool(
+                "send_email", {"to": "friend@example.com", "body": "这是一封完全正常的邮件"}
+            )
+            return sink.isError, sink.content[0].text if sink.content else ""
+
+
 class TestBlockPolicy:
     def test_exfiltration_blocked_backend_untouched(self, tmp_path: Path) -> None:
         flow_log = tmp_path / "flow.jsonl"
@@ -130,6 +159,46 @@ class TestBlockPolicy:
         assert capture.exists(), "干净调用应正常触达后端"
         edges = [e for e in _entries(flow_log) if e["method"] == "edge"]
         assert edges == []
+
+
+class TestStrictPolicy:
+    def test_downgrade_blocks_even_clean_sink(self, tmp_path: Path) -> None:
+        flow_log = tmp_path / "flow.jsonl"
+        capture = tmp_path / "sink_capture.jsonl"
+        sink_blocked, sink_text = asyncio.run(
+            _run_clean_after_source("strict", flow_log, capture)
+        )
+
+        assert sink_blocked, "strict 降级后即使无污点命中也要拒绝 SINK"
+        assert sink_text.startswith("policy_blocked:")
+        assert "capability downgraded" in sink_text
+        assert not capture.exists(), "被拒绝的 SINK 不得触达后端"
+
+        entries = _entries(flow_log)
+        caps = [e["payload"] for e in entries if e["method"] == "capability_block"]
+        assert len(caps) == 1
+        assert caps[0]["blocked"] is True and caps[0]["downgraded"] is True
+        assert caps[0]["tool"] == "send_email"
+        assert any(e["method"] == "downgraded" for e in entries)
+        sink_calls = [
+            e for e in entries
+            if e["method"] == "tools/call"
+            and e["direction"] == "backend_response"
+            and e["payload"]["name"] == "send_email"
+        ]
+        assert sink_calls == []
+
+    def test_block_still_allows_clean_sink_after_downgrade(self, tmp_path: Path) -> None:
+        flow_log = tmp_path / "flow.jsonl"
+        capture = tmp_path / "sink_capture.jsonl"
+        sink_blocked, sink_text = asyncio.run(
+            _run_clean_after_source("block", flow_log, capture)
+        )
+
+        assert not sink_blocked and sink_text == "sent"
+        assert capture.exists(), "block 既有行为不变：无污点命中的 SINK 仍放行"
+        entries = _entries(flow_log)
+        assert [e for e in entries if e["method"] == "capability_block"] == []
 
 
 class TestAlertPolicy:

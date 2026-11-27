@@ -13,6 +13,7 @@
     POST /api/demo                一键 demo：同格 off/block 成对运行
     POST /api/matrix              批量跑格（默认只跑筛选出的子集，需显式 confirm）
     GET  /api/custom/example      自定义 MCP 接入的配置样例
+    POST /api/custom/probe        探测上传命令的 tools/list（需服务端显式开启）
     POST /api/custom/runs         上传配置跑自己的 MCP 工具链（需服务端显式开启）
 
 写接口是算力开关，默认只允许同源访问（CORS 由 MCPSENTRY_ORIGINS 显式打开），
@@ -31,7 +32,7 @@ from typing import Any
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from bench.matrix import describe, matrix
 from range.specs import ATTACK_CLASSES, SEEDS, TARGETS
@@ -44,6 +45,7 @@ from .orchestr import PLATFORM_SUBDIR, RESULTS_ROOT, Orchestrator, RunRequest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 METRICS_FILE = REPO_ROOT / "bench" / "metrics" / "summary.json"
 DEMO_DIR = Path(__file__).resolve().parent / "demo"
+_DEFENSES = ("off", "block", "alert", "strict")
 
 
 class RunBody(BaseModel):
@@ -55,6 +57,13 @@ class RunBody(BaseModel):
     semantic: bool = False
     note: str = ""
 
+    @field_validator("defense")
+    @classmethod
+    def _valid_defense(cls, value: str) -> str:
+        if value not in _DEFENSES:
+            raise ValueError("defense 只能是 off / block / alert / strict")
+        return value
+
     def to_request(self) -> RunRequest:
         return RunRequest(**self.model_dump())
 
@@ -65,6 +74,14 @@ class MatrixBody(BaseModel):
     seeds: list[int] = list(SEEDS)
     tiers: list[str] = ["off", "block"]
     confirm: bool = False
+
+    @field_validator("tiers")
+    @classmethod
+    def _valid_tiers(cls, values: list[str]) -> list[str]:
+        bad = [t for t in values if t not in _DEFENSES]
+        if bad:
+            raise ValueError("tiers 只能包含 off / block / alert / strict")
+        return values
 
 
 def _demo_bundle() -> dict[str, Any] | None:
@@ -211,14 +228,33 @@ def custom_example() -> dict[str, Any]:
     return custom_api.example_body()
 
 
+@app.post("/api/custom/probe")
+async def probe_custom_tools(body: custom_api.CustomProbeBody) -> dict[str, Any]:
+    """探测用户 MCP 命令的工具清单；不执行工具调用，失败统一中文通用文案。
+
+    422：未启用 / 命令不合法 / 未 confirm；504：探测超时；502：初始化失败。
+    """
+    try:
+        custom_api.ensure_enabled()
+        return await custom_api.probe_command(body)
+    except PermissionError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    except TimeoutError as exc:
+        raise HTTPException(504, str(exc)) from None
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from None
+
+
 @app.post("/api/custom/runs", status_code=202)
 async def start_custom_run(
     body: custom_api.CustomRunBody, background: BackgroundTasks
 ) -> dict[str, Any]:
-    """上传模板 + 工具清单，按内置靶标同样的链路跑一组攻击。
+    """上传模板 + 工具清单（可选 command），按内置靶标同样的链路跑一组攻击。
 
-    平台只执行自己的内置 MCP server，不接受用户命令；服务端未设
-    MCPSENTRY_ALLOW_CUSTOM=1 时直接 403。
+    不传 command 时执行体仍是平台内置 range.backend；传 command 时在白名单内
+    执行用户自己的 stdio MCP server。服务端未设 MCPSENTRY_ALLOW_CUSTOM=1 时直接 403。
     """
     try:
         custom_api.ensure_enabled()

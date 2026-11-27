@@ -11,21 +11,41 @@ export type VerdictType =
 export type EdgeState = "payload" | "call" | "blocked" | "tainted" | "captured";
 export type NodeKind = "attacker" | "agent" | "call" | "source" | "sink";
 export type Tier = "off" | "block" | "alert";
+/** 自定义接入的两档防御：标准对应 block，严格对应并行新增的 strict。 */
+export type CustomDefense = "block" | "strict";
+export type ToolRole = "source" | "sink" | "neutral";
+
+/** /api/custom/probe 返回的工具条目；后端并行实现中，失败时前端回退模板默认清单。 */
+export interface ProbeTool {
+  name: string;
+  description?: string;
+  input_schema?: Record<string, unknown>;
+  /** 前端分类，不来自后端判定；未提供时按名称与模板默认值推导。 */
+  role?: ToolRole;
+}
+
+export interface ProbeResult {
+  ok: boolean;
+  tools: ProbeTool[];
+  duration_ms?: number;
+}
 
 /** 自定义 MCP 接入配置：与 platform_api/custom.py 的 CustomRunBody 一一对应。 */
 export interface CustomConfig {
   name: string;
   template: string;
-  tool_classes: Record<string, "source" | "sink" | "neutral">;
+  tool_classes: Record<string, ToolRole>;
   sinks: string[];
   carrier_tool?: string;
   attack_class?: string;
   seed?: number;
-  defense?: Tier;
+  defense?: Tier | CustomDefense;
   hardened?: boolean;
   description?: string;
   note?: string;
   confirm?: boolean;
+  /** 用户声明的 python 命令；不提供时后端保持旧的模板内置命令行为。 */
+  command?: string[];
 }
 
 export const VERDICT_LABEL: Record<VerdictType, string> = {

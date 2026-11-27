@@ -3,7 +3,7 @@
 用法：
     python -m engine.proxy --backend '["python","backend.py"]' [--log path]
                            [--taint-log path] [--classes path/to/classes.json]
-                           [--policy alert|block] [--no-downgrade-on-untrusted]
+                           [--policy alert|block|strict] [--no-downgrade-on-untrusted]
 
 语义层：设置 DASHSCOPE_API_KEY 即启用（qwen-flash，可经 DASHSCOPE_MODEL/
 DASHSCOPE_BASE_URL 覆盖）；未设置则自动关闭（仅子串层）。
@@ -39,8 +39,8 @@ def main() -> None:
     parser.add_argument(
         "--policy",
         default="block",
-        choices=["alert", "block"],
-        help="sink 命中策略：alert 记边放行 / block 拒绝调用（默认 block）",
+        choices=["alert", "block", "strict"],
+        help="sink 策略：alert 记边放行 / block 拒绝命中 / strict 拒绝命中且降级后拒绝所有 SINK（默认 block）",
     )
     parser.add_argument(
         "--downgrade-on-untrusted",

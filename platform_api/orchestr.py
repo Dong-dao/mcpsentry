@@ -34,7 +34,7 @@ class RunRequest:
     target: str = "T1"
     attack_class: str = "A2_indirect_tool_result"
     seed: int = 42
-    defense: str = "block"  # off | block | alert
+    defense: str = "block"  # off | block | alert | strict
     paraphrase: bool = False
     semantic: bool = False
     note: str = ""
@@ -42,7 +42,7 @@ class RunRequest:
     def validate(self) -> None:
         if self.attack_class not in ATTACK_CLASSES:
             raise ValueError(f"unknown attack_class {self.attack_class!r}; {ATTACK_CLASSES}")
-        if self.defense not in ("off", "block", "alert"):
+        if self.defense not in ("off", "block", "alert", "strict"):
             raise ValueError(f"unknown defense {self.defense!r}")
         target(self.target)  # 未知靶标在这里就抛，别留到子进程里
 

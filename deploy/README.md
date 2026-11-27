@@ -122,6 +122,12 @@ docker tag mcpsentry-api:latest mcpsentry-api:$(date +%F) && docker compose up -
 - 密钥只走运行时 env（`DASHSCOPE_API_KEY`），不进镜像、不进 git；语义层没有 key 也能跑，
   只是退化为子串层。
 - 报告与图全部来自产物文件，平台层不做任何判定，公网实例上不存在"能改判定"的入口。
+- 自定义接入默认关闭（`MCPSENTRY_ALLOW_CUSTOM != 1`）；当前 compose 显式打开，仅适用于
+  可信实例。命令模式只接受 `python` / `python3` / 当前解释器开头、参数非空无 NUL 且
+  单参数 ≤500 字符；`POST /api/custom/probe` 只做 initialize + tools/list（15 秒超时），
+  错误不回显命令或环境细节。上传自己的 MCP 时建议 `defense: strict`（block 的全部拦截 +
+  降级后拒绝所有 SINK，详见 `docs/污点模型与策略规格.md` v1.2）。正式 120 组矩阵仍只跑
+  off/block 两档，不受此项影响。
 
 ## 8. 文件
 

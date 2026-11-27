@@ -27,7 +27,7 @@ class Cell:
     entry: TargetSpecEntry
     attack_class: str
     seed: int
-    defense: str  # off | block | alert
+    defense: str  # off | block | alert | strict（矩阵正式档仍只有 off/block）
 
     @property
     def applicable(self) -> bool:

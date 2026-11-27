@@ -98,7 +98,8 @@
     "PolicyMode": {
       "enum": [
         "alert",
-        "block"
+        "block",
+        "strict"
       ],
       "title": "PolicyMode",
       "type": "string"

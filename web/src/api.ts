@@ -3,6 +3,7 @@ import type {
   DemoBundle,
   Health,
   MetricsPayload,
+  ProbeResult,
   RunDetail,
   RunRequest,
   RunRow,
@@ -67,6 +68,7 @@ const staticApi = {
   },
   demoPreset: () => staticGet<DemoBundle>("demo.json"),
   customExample: () => Promise.reject(new Error(STATIC_HINT)),
+  probeCustom: () => Promise.reject(new Error(STATIC_HINT)),
   startCustom: () => Promise.reject(new Error(STATIC_HINT)),
   startRun: () => Promise.reject(new Error(STATIC_HINT)),
   startDemo: () => Promise.reject(new Error(STATIC_HINT)),
@@ -98,6 +100,8 @@ const liveApi = {
   run: (runId: string) => get<RunDetail>(`/runs/${encodeURIComponent(runId)}`),
   demoPreset: () => get<DemoBundle>("/demo/preset"),
   customExample: () => get<CustomConfig>("/custom/example"),
+  probeCustom: (command: string[]) =>
+    post<ProbeResult>("/custom/probe", { command, confirm: true }),
   startCustom: (body: CustomConfig) =>
     post<{ run_id: string; status: string; target: string; name: string }>("/custom/runs", body),
   startRun: (body: RunRequest) => post<{ run_id: string; status: string }>("/runs", body),
